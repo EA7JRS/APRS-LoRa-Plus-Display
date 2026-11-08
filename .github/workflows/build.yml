@@ -1,0 +1,51 @@
+name: Build
+
+on:
+    push:
+    pull_request:
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: "3.12"
+
+            - name: PlatformIO
+              run: pip install platformio
+
+            - uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.platformio
+                      .pio/libdeps
+                  key: pio-${{ hashFiles('platformio.ini') }}
+
+            - name: Compilar
+              run: pio run -e waveshare_lcd7b
+
+            - name: Pruebas del protocolo (PC)
+              run: |
+                  AJ=$(find .pio/libdeps -type d -path '*ArduinoJson/src' | head -1)
+                  g++ -std=c++17 -Wall -Wextra -Werror -I src -I "$AJ" test/test_protocol.cpp src/protocol.cpp -o /tmp/test_protocol
+                  /tmp/test_protocol
+
+            - name: Tamano
+              run: |
+                  ls -l .pio/build/waveshare_lcd7b/firmware.bin
+                  pio run -e waveshare_lcd7b -t size | tail -8
+
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: aprs-lora-plus-display-firmware
+                  path: |
+                      .pio/build/waveshare_lcd7b/firmware.bin
+                      .pio/build/waveshare_lcd7b/bootloader.bin
+                      .pio/build/waveshare_lcd7b/partitions.bin

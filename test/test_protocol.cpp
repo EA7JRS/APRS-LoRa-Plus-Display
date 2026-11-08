@@ -1,0 +1,56 @@
+/*
+ * Copyright (C) 2026 Manuel - EA7JRS
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+// Prueba en el PC: g++ -std=c++17 -I src -I <ArduinoJson>/src test/test_protocol.cpp src/protocol.cpp -o /tmp/tp && /tmp/tp
+#include "protocol.h"
+#include <cstdio>
+#include <cstring>
+static int fails = 0, total = 0;
+#define CHECK(c) do { total++; if (!(c)) { fails++; printf("FALLA %s:%d  %s\n", __FILE__, __LINE__, #c); } } while (0)
+int main() {
+    proto::Model m;
+    CHECK(proto::applyEvent(m, R"J({"e":"info","v":1,"fw":"5.3.5","board":"ttgo_t_beam_s3_SUPREME_v3","caps":{"nmea":true,"ota":true,"rotor":true},"mode":0,"modes":[{"m":0,"n":"APRS LoRa"},{"m":9,"n":"Satellites"}]})J"));
+    CHECK(m.info.ok && m.info.fw == "5.3.5" && m.info.capOta && m.info.capRotor && m.info.modeIds.size() == 2 && m.info.modeIds[1] == 9 && m.info.modeNames[1] == "Satellites");
+    CHECK(proto::applyEvent(m, R"J({"e":"status","mode":0,"profile":1,"lora":0,"digi":true,"smart":true,"sos":false,"batt":4.05,"up":3600})J"));
+    CHECK(m.status.profile == 1 && m.status.digi && m.status.up == 3600 && m.status.batt > 4.0f);
+    CHECK(proto::applyEvent(m, R"J({"e":"sensors","batt":4.05,"temp":21.4,"hum":55.0,"press":1013.2,"battPct":88})J"));
+    CHECK(m.sensors.temp > 21.3f && m.sensors.temp < 21.5f && m.sensors.battPct == 88 && m.sensors.qnh < 0);
+    CHECK(proto::applyEvent(m, R"J({"e":"sensors","temp":22.0})J"));
+    CHECK(m.sensors.press > 1013.0f);   // lo que no llega se conserva
+    CHECK(proto::applyEvent(m, R"J({"e":"gnss","fix":true,"lat":37.191512,"lon":-3.936701,"alt":512.0,"spd":0.0,"crs":0.0,"sats":11,"hdop":0.8,"utc":"2026-11-05T07:45:00Z"})J"));
+    CHECK(m.gnss.fix && m.gnss.sats == 11 && m.gnss.lon < -3.9 && m.gnss.utc == "2026-11-05T07:45:00Z");
+    CHECK(proto::applyEvent(m, R"J({"e":"heard","tot":2,"pkts":9,"items":[{"c":"EA7ABC-9","sym":"/>","lat":37.1,"lon":-3.6,"rssi":-97,"snr":6.5,"age":42,"n":3,"cmt":"hola"},{"c":"EB7XYZ","sym":"/-","rssi":-110,"age":900,"n":1}]})J"));
+    CHECK(m.heard.size() == 2 && m.heardTot == 2 && m.heard[0].hasPos && !m.heard[1].hasPos && m.heard[0].call == "EA7ABC-9" && m.heard[0].sym[0] == '/' && m.heard[0].cmt == "hola");
+    CHECK(proto::applyEvent(m, R"J({"e":"msgs","tot":3,"unread":1,"from":0,"items":[{"i":0,"d":"R","ep":1790000000,"st":0,"c":"EA7ABC-9","t":"Hola"},{"i":1,"d":"T","ep":1789999000,"st":4,"c":"EA7ABC-9","t":"QSL"}]})J"));
+    CHECK(m.msgs.size() == 2 && m.msgUnread == 1 && m.msgs[0].dir == 'R' && m.msgs[1].dir == 'T' && m.msgs[1].st == 4 && m.msgs[0].text == "Hola");
+    CHECK(proto::applyEvent(m, R"J({"e":"sat","ok":true,"n":"ISS (ZARYA)","id":25544,"az":123.4,"el":45.0,"rng":850,"aos":1790000000,"los":1790000600,"max":62})J"));
+    CHECK(m.sat.ok && m.sat.name == "ISS (ZARYA)" && m.sat.maxEl == 62 && m.sat.los == 1790000600u);
+    CHECK(proto::applyEvent(m, R"J({"e":"rot","az":123.4,"el":45.0,"trk":true,"src":4,"name":"EA7ABC-9","km":12})J"));
+    CHECK(m.rot.trk && m.rot.src == 4 && m.rot.name == "EA7ABC-9");
+    CHECK(proto::applyEvent(m, R"J({"e":"screen","p":1,"cur":0,"t":"STATIONS","r":"12:00","rows":["EA7ABC 3km","EB7XYZ 9km"]})J"));
+    CHECK(m.screen.rows.size() == 2 && m.screen.title == "STATIONS");
+    CHECK(proto::applyEvent(m, R"J({"e":"page","ric":12345,"own":true,"rssi":-97,"t":"Aviso"})J"));
+    CHECK(m.pages.size() == 1 && m.pages[0].own && m.pages[0].text == "Aviso");
+    CHECK(proto::applyEvent(m, R"J({"e":"err","c":"msg","msg":"solo en modos APRS"})J"));
+    CHECK(m.lastError == "msg: solo en modos APRS");
+    CHECK(proto::applyEvent(m, R"J({"e":"ok","c":"msg","ack":4})J"));
+    CHECK(!proto::applyEvent(m, R"J({"e":"algo_nuevo"})J"));
+    CHECK(!proto::applyEvent(m, "no es json"));
+    CHECK(!proto::applyEvent(m, R"J({"x":1})J"));
+    // Ordenes
+    CHECK(proto::cmdSimple("info") == "{\"c\":\"info\"}\n");
+    CHECK(proto::cmdSub(5, 2) == "{\"c\":\"sub\",\"sensors\":5,\"gnss\":2}\n");
+    CHECK(proto::cmdMsgSend("EA7ABC-9", "Hola \"mundo\"", true) == "{\"c\":\"msg\",\"to\":\"EA7ABC-9\",\"t\":\"Hola \\\"mundo\\\"\",\"ack\":true}\n");
+    std::string larga(100, 'x');
+    { std::string c = proto::cmdMsgSend("A", larga, false); CHECK(c.find(std::string(67, 'x')) != std::string::npos && c.find(std::string(68, 'x')) == std::string::npos); }
+    CHECK(proto::cmdMode(9) == "{\"c\":\"mode\",\"m\":9}\n");
+    // Troceo de lineas
+    proto::LineBuffer lb; std::vector<std::string> out;
+    auto f = [&](const std::string& s) { out.push_back(s); };
+    const char* a = "{\"e\":\"ok\"}\n{\"e\":\"st"; const char* b = "atus\"}\r\n\n{\"e\":";
+    lb.feed((const uint8_t*)a, strlen(a), f); lb.feed((const uint8_t*)b, strlen(b), f);
+    CHECK(out.size() == 2 && out[0] == "{\"e\":\"ok\"}" && out[1] == "{\"e\":\"status\"}");
+    printf("%d comprobaciones, %d fallos\n", total, fails);
+    return fails ? 1 : 0;
+}
