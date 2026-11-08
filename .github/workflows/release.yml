@@ -35,7 +35,7 @@ jobs:
                   test "v$V" = "$TAG" || { echo "::error::La etiqueta $TAG no es v$V"; exit 1; }
             - name: PlatformIO
               run: pip install --upgrade platformio
-            - name: Compilar (con reintentos: las descargas de GitHub dan 504 a veces)
+            - name: Compilar con reintentos (las descargas de GitHub dan 504 a veces)
               run: |
                   for i in 1 2 3 4 5; do
                       pio run -e waveshare_lcd7b && exit 0
