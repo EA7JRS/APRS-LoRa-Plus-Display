@@ -5,6 +5,7 @@
  * APRS LoRa+ Display: pantalla grande (Waveshare ESP32-S3-Touch-LCD-7B) que se conecta por BLE al tracker APRS LoRa+.
  */
 #include <Arduino.h>
+#include <cstring>
 #include <lvgl.h>
 #include <esp_timer.h>
 #include "board_lcd7b.h"
@@ -88,7 +89,27 @@ static void scheduler() {
     if (now - tMsgs > (ui::messagesVisible() ? 8000u : 30000u)) { tMsgs = now; trk::send(proto::cmdMsgs(0, 10)); }
 }
 
+// Instalador web: por USB contesta a "APRS-INFO?" como el resto de dispositivos APRS LoRa+.
+static void usbInfo() {
+    static char buf[16];
+    static uint8_t n = 0;
+    while (Serial.available()) {
+        char c = (char)Serial.read();
+        if (c == '\n' || c == '\r') {
+            buf[n] = 0;
+            if (n && strcmp(buf, "APRS-INFO?") == 0)
+                Serial.println("APRS-LoRa-Plus: device=display board=waveshare_lcd7b version=" DISPLAY_VERSION " chip=ESP32-S3 ota=0");
+            n = 0;
+        } else if (n < sizeof(buf) - 1) {
+            buf[n++] = c;
+        } else {
+            n = 0;
+        }
+    }
+}
+
 void loop() {
+    usbInfo();
     std::string line;
     int n = 0;
     while (n++ < 20 && trk::poll(line)) {
