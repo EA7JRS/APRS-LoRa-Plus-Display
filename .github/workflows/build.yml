@@ -21,15 +21,30 @@ jobs:
             - name: PlatformIO
               run: pip install platformio
 
-            - uses: actions/cache@v4
+            - uses: actions/cache/restore@v4
+              id: cache
               with:
                   path: |
                       ~/.platformio
                       .pio/libdeps
                   key: pio-${{ hashFiles('platformio.ini') }}
 
+            # Las descargas de GitHub Releases dan 504 de vez en cuando: reintentar.
             - name: Compilar
-              run: pio run -e waveshare_lcd7b
+              run: |
+                  for i in 1 2 3 4 5; do
+                      pio run -e waveshare_lcd7b && exit 0
+                      echo "Intento $i fallido, reintentando en 30 s"; sleep 30
+                  done
+                  exit 1
+
+            - uses: actions/cache/save@v4
+              if: always() && steps.cache.outputs.cache-hit != 'true'
+              with:
+                  path: |
+                      ~/.platformio
+                      .pio/libdeps
+                  key: pio-${{ hashFiles('platformio.ini') }}
 
             - name: Pruebas del protocolo (PC)
               run: |
