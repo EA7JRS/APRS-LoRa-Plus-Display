@@ -27,7 +27,8 @@ jobs:
                   path: |
                       ~/.platformio
                       .pio/libdeps
-                  key: pio-${{ hashFiles('platformio.ini') }}
+                  key: pio-${{ hashFiles('platformio.ini') }}-${{ github.run_id }}
+                  restore-keys: pio-${{ hashFiles('platformio.ini') }}-
 
             # Las descargas de GitHub Releases dan 504 de vez en cuando: reintentar.
             - name: Compilar
@@ -39,12 +40,12 @@ jobs:
                   exit 1
 
             - uses: actions/cache/save@v4
-              if: always() && steps.cache.outputs.cache-hit != 'true'
+              if: always()
               with:
                   path: |
                       ~/.platformio
                       .pio/libdeps
-                  key: pio-${{ hashFiles('platformio.ini') }}
+                  key: pio-${{ hashFiles('platformio.ini') }}-${{ github.run_id }}
 
             - name: Pruebas del protocolo (PC)
               run: |
