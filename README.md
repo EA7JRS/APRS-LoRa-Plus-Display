@@ -33,6 +33,10 @@ pio run -e waveshare_lcd7b
 
 Usa pioarduino (Arduino-ESP32 3.x), LVGL 8.4, NimBLE-Arduino 2.x y ArduinoJson 7. La CI compila en cada subida y ejecuta las pruebas del protocolo en el PC (`test/test_protocol.cpp`).
 
+## Instalar
+
+Desde el instalador web del proyecto (Chrome o Edge, placa por USB): https://ea7jrs.github.io/APRS-LoRa-Plus/#display
+
 ## Estado
 
 **Sin probar en la placa.** Ver `docs/HARDWARE_LCD7B.md` para lo que está sin verificar (expansor de E/S, tiempos del panel) antes del primer arranque.
