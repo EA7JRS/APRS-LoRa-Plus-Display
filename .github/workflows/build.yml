@@ -27,8 +27,8 @@ jobs:
                   path: |
                       ~/.platformio
                       .pio/libdeps
-                  key: pio2-${{ hashFiles('platformio.ini') }}
-                  restore-keys: pio2-
+                  key: pio3-${{ hashFiles('platformio.ini') }}
+                  restore-keys: pio3-
 
             # Las descargas de GitHub Releases dan 504 de vez en cuando: reintentar.
             - name: Compilar
@@ -45,7 +45,7 @@ jobs:
                   path: |
                       ~/.platformio
                       .pio/libdeps
-                  key: pio2-${{ hashFiles('platformio.ini') }}
+                  key: pio3-${{ hashFiles('platformio.ini') }}
 
             - name: Pruebas del protocolo (PC)
               run: |
