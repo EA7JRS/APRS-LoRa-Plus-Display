@@ -14,7 +14,7 @@ Pantalla grande y táctil para el tracker: **Waveshare ESP32-S3-Touch-LCD-7B** (
 - Instalador web: `tools/make_web_assets.py` + `release.yml` (etiqueta `v5.3.5` → `display-waveshare_lcd7b.zip` y `web-site-display.zip`); el job `pages` del tracker lo descarga con la misma etiqueta (secreto `FLASHER_TOKEN`). Por USB contesta a `APRS-INFO?` con `device=display`.
 
 ## Estado (2026-11-08)
-- Compila en la CI (1,45 MB, 22 % de la partición) y pasa las pruebas del protocolo. **Sin probar en la placa**: ver `docs/HARDWARE_LCD7B.md` (protocolo del expansor 0x24 y tiempos del panel sin verificar).
+- Compila en la CI (1,45 MB, 22 % de la partición) y pasa las pruebas del protocolo. 2026-11-09: en la placa la pantalla salía negra; arreglado el expansor (EXIOn = bit n, PWM al revés) según el código de Waveshare (`waveshareteam/ESP32-S3-Touch-LCD-7B`). Pendiente de confirmar en la placa.
 
 ## Cómo trabajar
 - No publicar releases ni tocar otros repositorios sin que lo pida Manuel (las etiquetas y releases las crea él).
