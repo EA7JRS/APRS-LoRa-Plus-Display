@@ -8,6 +8,7 @@
 #    renderizador por software de LVGL 9).
 #  - img_splash: pantalla de bienvenida de la app (tools/assets/welcome_logo.jpg, copia de app/src/main/res/drawable/welcome_logo.jpg
 #    de APRS-LoRa-Plus-Android) con los bordes fundidos con #131A22, en 256 colores (LV_COLOR_FORMAT_I8).
+#  - img_splash_small: la misma en pequeno para pantallas de menos de 600 lineas (LVGL 9 no escala las imagenes indexadas).
 #
 #   python3 tools/make_ui_assets.py
 import argparse
@@ -72,10 +73,12 @@ def main():
     ap.add_argument("--icon-size", type=int, default=40)
     ap.add_argument("--splash", default="tools/assets/welcome_logo.jpg")
     ap.add_argument("--splash-h", type=int, default=540)
+    ap.add_argument("--splash-small-h", type=int, default=210)
     ap.add_argument("--out", default="src/ui_assets.cpp")
     a = ap.parse_args()
     iw, ih, idata = icon(a.icon, a.icon_size)
     sw, sh, sdata = splash(a.splash, a.splash_h)
+    tw, th, tdata = splash(a.splash, a.splash_small_h)
     out = [
         "/*",
         " * Copyright (C) 2026 Manuel - EA7JRS",
@@ -88,17 +91,19 @@ def main():
     ]
     out += carray("icon_data", idata)
     out += carray("splash_data", sdata)
+    out += carray("splash_small_data", tdata)
     out += [
         "",
         "// cabecera: magia, formato, flags, ancho, alto, bytes por fila",
         "const lv_image_dsc_t img_app_icon = { { LV_IMAGE_HEADER_MAGIC, LV_COLOR_FORMAT_ARGB8888, 0, %d, %d, %d, 0 }, sizeof(icon_data), icon_data, nullptr, nullptr };" % (iw, ih, iw * 4),
         "const lv_image_dsc_t img_splash = { { LV_IMAGE_HEADER_MAGIC, LV_COLOR_FORMAT_I8, 0, %d, %d, %d, 0 }, sizeof(splash_data), splash_data, nullptr, nullptr };" % (sw, sh, sw),
+        "const lv_image_dsc_t img_splash_small = { { LV_IMAGE_HEADER_MAGIC, LV_COLOR_FORMAT_I8, 0, %d, %d, %d, 0 }, sizeof(splash_small_data), splash_small_data, nullptr, nullptr };" % (tw, th, tw),
         "const uint32_t SPLASH_BG_RGB = 0x%02X%02X%02X;" % SPLASH_BG,
         "",
     ]
     with open(a.out, "w", encoding="utf-8") as f:
         f.write("\n".join(out))
-    print("written", a.out, "icon %dx%d, splash %dx%d (%d bytes)" % (iw, ih, sw, sh, len(sdata)))
+    print("written", a.out, "icon %dx%d, splash %dx%d (%d bytes), small %dx%d" % (iw, ih, sw, sh, len(sdata), tw, th))
 
 
 if __name__ == "__main__":

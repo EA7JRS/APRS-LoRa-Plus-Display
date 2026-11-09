@@ -2,23 +2,27 @@
  * Copyright (C) 2026 Manuel - EA7JRS
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * APRS LoRa+ Display: pantalla grande (Waveshare ESP32-S3-Touch-LCD-7B) que se conecta por BLE al tracker APRS LoRa+.
+ * APRS LoRa+ Display: pantalla tactil (Waveshare ESP32-S3-Touch-LCD-7B, -3.5/3.5-C, -2.8B o -1.69) que se conecta por BLE
+ * al tracker APRS LoRa+. La placa la elige el entorno de PlatformIO (src/board.h).
  */
 #include <Arduino.h>
 #include <cstring>
 #include <esp_heap_caps.h>
 #include <lvgl.h>
-#include "board_lcd7b.h"
+#include "board.h"
 #include "protocol.h"
 #include "tracker_link.h"
 #include "ui.h"
 
 static proto::Model model;
+static lv_display_t* disp = nullptr;
 
-// LVGL 9: el buffer es RGB565 (LV_COLOR_DEPTH 16, sin intercambio de bytes), igual que el panel
-static void flush(lv_display_t* d, const lv_area_t* a, uint8_t* px) {
+// La placa avisa cuando ya se puede reutilizar el buffer (al momento en los paneles RGB, al acabar el DMA en los SPI)
+static void drawDone() { lv_display_flush_ready(disp); }
+
+static void flush(lv_display_t*, const lv_area_t* a, uint8_t* px) {
+    if (board::swapBytes()) lv_draw_rgb565_swap(px, (uint32_t)lv_area_get_width(a) * lv_area_get_height(a));
     board::draw(a->x1, a->y1, a->x2, a->y2, px);
-    lv_display_flush_ready(d);
 }
 
 static void readTouch(lv_indev_t*, lv_indev_data_t* data) {
@@ -36,18 +40,19 @@ static uint32_t tickMs() { return millis(); }
 
 void setup() {
     Serial.begin(115200);
-    Serial.println("\n=== APRS LoRa+ Display " DISPLAY_VERSION " ===");
+    Serial.println("\n=== APRS LoRa+ Display " DISPLAY_VERSION " (" BOARD_ENV ") ===");
     bool ok = board::begin();
 
     lv_init();
     lv_tick_set_cb(tickMs);
 
-    // Dos buffers parciales de 60 lineas en PSRAM (LVGL dibuja en uno mientras el otro se copia al panel)
-    const uint32_t bytes = board::W * 60 * 2;
-    void* b1 = heap_caps_aligned_alloc(64, bytes, MALLOC_CAP_SPIRAM);
-    void* b2 = heap_caps_aligned_alloc(64, bytes, MALLOC_CAP_SPIRAM);
-    if (!b1 || !b2) Serial.println("[main] sin PSRAM para los buffers de LVGL");
-    lv_display_t* disp = lv_display_create(board::W, board::H);
+    // Dos buffers parciales (LVGL dibuja en uno mientras el otro va al panel)
+    const uint32_t bytes = (uint32_t)board::W * board::drawLines() * 2;
+    void* b1 = board::allocDrawBuffer(bytes);
+    void* b2 = board::allocDrawBuffer(bytes);
+    if (!b1 || !b2) Serial.println("[main] sin memoria para los buffers de LVGL");
+    disp = lv_display_create(board::W, board::H);
+    board::setDrawDone(drawDone);
     lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565);
     lv_display_set_flush_cb(disp, flush);
     lv_display_set_buffers(disp, b1, b2, bytes, LV_DISPLAY_RENDER_MODE_PARTIAL);
@@ -58,7 +63,7 @@ void setup() {
 
     trk::begin();
     ui::begin(&model);
-    if (!ok) Serial.println("La placa no ha arrancado bien: revisar docs/HARDWARE_LCD7B.md");
+    if (!ok) Serial.println("La placa no ha arrancado bien: revisar docs/HARDWARE.md");
 }
 
 // Peticiones periodicas al tracker (el resto de datos llega solo como eventos)
@@ -92,7 +97,7 @@ static void usbInfo() {
         if (c == '\n' || c == '\r') {
             buf[n] = 0;
             if (n && strcmp(buf, "APRS-INFO?") == 0)
-                Serial.println("APRS-LoRa-Plus: device=display board=waveshare_lcd7b version=" DISPLAY_VERSION " chip=ESP32-S3 ota=0");
+                Serial.println("APRS-LoRa-Plus: device=display board=" BOARD_ENV " version=" DISPLAY_VERSION " chip=ESP32-S3 ota=0");
             n = 0;
         } else if (n < sizeof(buf) - 1) {
             buf[n++] = c;

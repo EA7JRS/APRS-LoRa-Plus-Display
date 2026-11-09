@@ -1,5 +1,5 @@
 # APRS LoRa+ Display - Copyright (C) 2026 Manuel - EA7JRS - GPL-3.0-or-later
-# Release: compila, adjunta display-<placa>.zip y web-site-display.zip (ficheros del instalador web).
+# Release: compila todas las placas, adjunta display-<placa>.zip de cada una y web-site-display.zip (instalador web).
 # El instalador web es el del tracker (EA7JRS/APRS-LoRa-Plus, GitHub Pages): al publicar la release del tracker con la MISMA
 # version, su workflow descarga web-site-display.zip de aqui y lo pone en display/. Etiqueta = v + DISPLAY_VERSION (p. ej. v5.3.5).
 name: Release
@@ -21,6 +21,7 @@ jobs:
         runs-on: ubuntu-latest
         env:
             TAG: ${{ github.event.release.tag_name || inputs.tag }}
+            BOARDS: waveshare_lcd7b waveshare_lcd35 waveshare_lcd28b waveshare_lcd169
         steps:
             - uses: actions/checkout@v4
               with:
@@ -35,23 +36,27 @@ jobs:
                   test "v$V" = "$TAG" || { echo "::error::La etiqueta $TAG no es v$V"; exit 1; }
             - name: PlatformIO
               run: pip install --upgrade platformio
-            - name: Compilar con reintentos (las descargas de GitHub dan 504 a veces)
+            - name: Compilar todas las placas con reintentos (las descargas de GitHub dan 504 a veces)
               run: |
-                  for i in 1 2 3 4 5; do
-                      pio run -e waveshare_lcd7b && exit 0
-                      echo "Intento $i fallido"; sleep 30
+                  for e in $BOARDS; do
+                      ok=0
+                      for i in 1 2 3 4 5; do
+                          pio run -e $e && { ok=1; break; }
+                          echo "$e: intento $i fallido"; sleep 30
+                      done
+                      [ $ok = 1 ] || exit 1
                   done
-                  exit 1
             - name: Ficheros del instalador web
               run: |
-                  B=.pio/build/waveshare_lcd7b
                   APP0=$(find ~/.platformio/packages -path '*tools/partitions/boot_app0.bin' | head -n 1)
-                  python3 tools/make_web_assets.py board --board waveshare_lcd7b --chip esp32s3 \
-                      --build-dir "$B" --boot-app0 "$APP0" --out web_site
+                  for e in $BOARDS; do
+                      python3 tools/make_web_assets.py board --board $e --chip esp32s3 \
+                          --build-dir .pio/build/$e --boot-app0 "$APP0" --out web_site
+                      rm -rf pkg && mkdir -p pkg && cp -r web_site/firmware/$e pkg/ && (cd pkg && zip -qr ../display-$e.zip .)
+                  done
                   python3 tools/make_web_assets.py site --root web_site
                   (cd web_site && zip -qr ../web-site-display.zip .)
-                  mkdir -p pkg && cp -r web_site/firmware/waveshare_lcd7b pkg/ && (cd pkg && zip -qr ../display-waveshare_lcd7b.zip .)
             - name: Adjuntar a la release
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              run: gh release upload "$TAG" display-waveshare_lcd7b.zip web-site-display.zip --clobber --repo "$GITHUB_REPOSITORY"
+              run: gh release upload "$TAG" display-*.zip web-site-display.zip --clobber --repo "$GITHUB_REPOSITORY"

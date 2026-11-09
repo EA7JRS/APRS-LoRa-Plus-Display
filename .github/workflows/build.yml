@@ -11,6 +11,10 @@ permissions:
 jobs:
     build:
         runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                env: [waveshare_lcd7b, waveshare_lcd35, waveshare_lcd28b, waveshare_lcd169]
         steps:
             - uses: actions/checkout@v4
 
@@ -34,7 +38,7 @@ jobs:
             - name: Compilar
               run: |
                   for i in 1 2 3 4 5; do
-                      pio run -e waveshare_lcd7b && exit 0
+                      pio run -e ${{ matrix.env }} && exit 0
                       echo "Intento $i fallido, reintentando en 30 s"; sleep 30
                   done
                   exit 1
@@ -48,6 +52,7 @@ jobs:
                   key: pio3-${{ hashFiles('platformio.ini') }}
 
             - name: Pruebas del protocolo (PC)
+              if: matrix.env == 'waveshare_lcd7b'
               run: |
                   AJ=$(find .pio/libdeps -type d -path '*ArduinoJson/src' | head -1)
                   g++ -std=c++17 -Wall -Wextra -Werror -I src -I "$AJ" test/test_protocol.cpp src/protocol.cpp -o /tmp/test_protocol
@@ -55,13 +60,13 @@ jobs:
 
             - name: Tamano
               run: |
-                  ls -l .pio/build/waveshare_lcd7b/firmware.bin
-                  pio run -e waveshare_lcd7b -t size | tail -8
+                  ls -l .pio/build/${{ matrix.env }}/firmware.bin
+                  pio run -e ${{ matrix.env }} -t size | tail -8
 
             - uses: actions/upload-artifact@v4
               with:
-                  name: aprs-lora-plus-display-firmware
+                  name: aprs-lora-plus-display-${{ matrix.env }}
                   path: |
-                      .pio/build/waveshare_lcd7b/firmware.bin
-                      .pio/build/waveshare_lcd7b/bootloader.bin
-                      .pio/build/waveshare_lcd7b/partitions.bin
+                      .pio/build/${{ matrix.env }}/firmware.bin
+                      .pio/build/${{ matrix.env }}/bootloader.bin
+                      .pio/build/${{ matrix.env }}/partitions.bin

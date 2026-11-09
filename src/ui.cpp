@@ -2,10 +2,11 @@
  * Copyright (C) 2026 Manuel - EA7JRS
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Interfaz LVGL 9.6 para 1024x600 tactil. Textos en ingles y sin acentos (las fuentes integradas de LVGL no los llevan).
+ * Interfaz LVGL 9.6 tactil. Se adapta a la pantalla de la placa: grande (1024x600), media (480x320 en horizontal o
+ * 480x640 en vertical) y pequena (240x280). Textos en ingles y sin acentos (las fuentes integradas de LVGL no los llevan).
  */
 #include "ui.h"
-#include "board_lcd7b.h"
+#include "board.h"
 #include "tracker_link.h"
 #include "ui_assets.h"
 #include <lvgl.h>
@@ -13,12 +14,46 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
 
 namespace ui {
 
+// ---------- disposicion segun el tamano de la pantalla ----------
+enum class Size { S, M, L };
+struct Layout {
+    Size sz;
+    bool portrait;
+    const lv_font_t *fBase, *fBig, *fTable, *fMono, *fTab;
+    int topH, tabBar;                     // alto de la barra superior; ancho (izquierda) o alto (abajo) de las pestanas
+    lv_dir_t tabPos;
+    bool tabIcons;                        // pestanas con iconos en vez de texto
+    int btnW, btnH, ddW, kbH, iconScale, arc, pad, cellPad;
+};
+static Layout L;
+
+static Layout makeLayout(int w, int h) {
+    Layout l{};
+    l.portrait = h > w;
+    if (w >= 800) {
+        l = {Size::L, false, &lv_font_montserrat_20, &lv_font_montserrat_24, &lv_font_montserrat_16, &lv_font_unscii_16, &lv_font_montserrat_20,
+             48, 150, LV_DIR_LEFT, false, 220, 56, 320, 250, 256, 220, 16, 6};
+    } else if (w >= 400) {
+        if (l.portrait)          // 480 x 640: pestanas con iconos abajo
+            l = {Size::M, true, &lv_font_montserrat_16, &lv_font_montserrat_20, &lv_font_montserrat_14, &lv_font_unscii_16, &lv_font_montserrat_20,
+                 38, 52, LV_DIR_BOTTOM, true, 150, 46, 200, h * 2 / 5, 180, 170, 10, 4};
+        else                     // 480 x 320: pestanas con texto a la izquierda
+            l = {Size::M, false, &lv_font_montserrat_16, &lv_font_montserrat_20, &lv_font_montserrat_14, &lv_font_unscii_16, &lv_font_montserrat_14,
+                 36, 96, LV_DIR_LEFT, false, 140, 42, 170, h / 2, 180, 130, 8, 3};
+    } else {                     // 240 x 280
+        l = {Size::S, l.portrait, &lv_font_montserrat_14, &lv_font_montserrat_16, &lv_font_montserrat_12, &lv_font_unscii_8, &lv_font_montserrat_16,
+             28, 38, LV_DIR_BOTTOM, true, 96, 34, 120, h * 11 / 20, 128, 100, 4, 2};
+    }
+    return l;
+}
+
 static proto::Model* M = nullptr;
 static uint32_t drawnRev = 0xFFFFFFFF;
-static lv_obj_t *tabs, *tabDash, *tabHeard, *tabMsgs, *tabSens, *tabSat, *tabMirror, *tabPages, *tabSet;
+static lv_obj_t *scr, *tabs, *tabDash, *tabHeard, *tabMsgs, *tabSens, *tabSat, *tabMirror, *tabPages, *tabSet;
 static lv_obj_t *kb;
 
 // barra superior
@@ -40,8 +75,49 @@ static lv_obj_t* tblPages;
 // ajustes
 static lv_obj_t *taPin, *taPeer, *lblSetInfo, *lblPinRes, *slBack;
 
-static const lv_font_t* F_BIG = &lv_font_montserrat_24;
-static const lv_font_t* F_MONO = &lv_font_unscii_16;
+// ---------- columnas de las tablas: cuales salen y su peso en el ancho, segun la pantalla ----------
+struct Col { int id; float weight; const char* title; };
+struct Table {
+    std::vector<Col> cols;
+    int idx[8];                           // idx[id] = columna en la tabla, o -1 si en esta pantalla no sale
+};
+enum { H_CALL, H_SYM, H_DIST, H_RSSI, H_SNR, H_AGE, H_CMT };
+enum { G_DIR, G_CALL, G_TEXT, G_STATE };
+enum { P_RIC, P_RSSI, P_TEXT };
+static Table colsHeard, colsMsgs, colsPages;
+
+static void pickColumns() {
+    if (L.sz == Size::L) {
+        colsHeard.cols = {{H_CALL, 160, "Station"}, {H_SYM, 80, "Sym"}, {H_DIST, 120, "Dist"}, {H_RSSI, 80, "RSSI"}, {H_SNR, 80, "SNR"}, {H_AGE, 80, "Age"}, {H_CMT, 220, "Comment"}};
+        colsMsgs.cols = {{G_DIR, 60, ""}, {G_CALL, 170, "Station"}, {G_TEXT, 470, "Text"}, {G_STATE, 120, "State"}};
+        colsPages.cols = {{P_RIC, 110, "RIC"}, {P_RSSI, 100, "RSSI"}, {P_TEXT, 610, "Text"}};
+    } else if (L.sz == Size::M) {
+        colsHeard.cols = {{H_CALL, 3, "Station"}, {H_DIST, 2.2f, "Dist"}, {H_RSSI, 1.5f, "RSSI"}, {H_AGE, 1.5f, "Age"}};
+        if (L.portrait) colsHeard.cols.push_back({H_CMT, 3.5f, "Comment"});
+        colsMsgs.cols = {{G_DIR, 0.5f, ""}, {G_CALL, 2.2f, "Station"}, {G_TEXT, 4.5f, "Text"}, {G_STATE, 1.6f, "State"}};
+        colsPages.cols = {{P_RIC, 1.2f, "RIC"}, {P_TEXT, 4, "Text"}};
+    } else {
+        colsHeard.cols = {{H_CALL, 3, "Station"}, {H_DIST, 2, "Dist"}, {H_AGE, 1.4f, "Age"}};
+        colsMsgs.cols = {{G_DIR, 0.5f, ""}, {G_CALL, 2.2f, "Call"}, {G_TEXT, 3.5f, "Text"}};
+        colsPages.cols = {{P_RIC, 1.3f, "RIC"}, {P_TEXT, 3, "Text"}};
+    }
+}
+
+static void setupTable(lv_obj_t* t, Table& tc) {
+    for (int& i : tc.idx) i = -1;
+    lv_table_set_column_count(t, tc.cols.size());
+    float sum = 0;
+    for (const Col& c : tc.cols) sum += c.weight;
+    int avail = lv_obj_get_content_width(t) - 4;                   // margen para la barra de desplazamiento
+    for (size_t i = 0; i < tc.cols.size(); i++) {
+        tc.idx[tc.cols[i].id] = (int)i;
+        lv_table_set_column_width(t, i, (int32_t)(avail * tc.cols[i].weight / sum));
+        lv_table_set_cell_value(t, 0, i, tc.cols[i].title);
+    }
+}
+static void cell(lv_obj_t* t, const Table& tc, uint32_t row, int id, const char* v) {
+    if (tc.idx[id] >= 0) lv_table_set_cell_value(t, row, tc.idx[id], v);
+}
 
 static float distKm(double la1, double lo1, double la2, double lo2) {
     const double R = 6371.0, d2r = M_PI / 180.0;
@@ -67,10 +143,20 @@ static lv_obj_t* label(lv_obj_t* parent, const char* t, const lv_font_t* f = nul
     if (f) lv_obj_set_style_text_font(l, f, 0);
     return l;
 }
+// etiqueta que ocupa todo el ancho y parte las lineas largas
+static lv_obj_t* wrapLabel(lv_obj_t* parent, const char* t, const lv_font_t* f = nullptr) {
+    lv_obj_t* l = label(parent, t, f);
+    lv_obj_set_width(l, LV_PCT(100));
+    lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_WRAP);
+    return l;
+}
 
-static lv_obj_t* button(lv_obj_t* parent, const char* t, lv_event_cb_t cb, void* ud = nullptr, int w = 220) {
+static lv_obj_t* button(lv_obj_t* parent, const char* t, lv_event_cb_t cb, void* ud = nullptr, int w = 0) {
     lv_obj_t* b = lv_button_create(parent);
-    lv_obj_set_size(b, w, 56);
+    // en las pantallas media y pequena el boton se ajusta al texto (con un ancho minimo para el dedo)
+    const bool fit = L.sz != Size::L && !w;
+    lv_obj_set_size(b, w ? w : fit ? LV_SIZE_CONTENT : L.btnW, L.btnH);
+    if (fit) { lv_obj_set_style_pad_hor(b, L.sz == Size::S ? 10 : 16, 0); lv_obj_set_style_min_width(b, L.btnW * 2 / 3, 0); }
     lv_obj_t* l = lv_label_create(b);
     lv_label_set_text(l, t);
     lv_obj_center(l);
@@ -78,11 +164,36 @@ static lv_obj_t* button(lv_obj_t* parent, const char* t, lv_event_cb_t cb, void*
     return b;
 }
 
+// fila que reparte su contenido y pasa a la linea siguiente si no cabe
+static lv_obj_t* row(lv_obj_t* parent) {
+    lv_obj_t* r = lv_obj_create(parent);
+    lv_obj_set_size(r, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(r, L.pad, 0);
+    lv_obj_set_style_pad_gap(r, L.pad, 0);
+    return r;
+}
+
+// Teclado: al abrirlo las pestanas se encogen por encima de el y el campo se desplaza a la vista
+static void showKeyboard(lv_obj_t* ta) {
+    lv_keyboard_set_textarea(kb, ta);
+    lv_obj_set_hidden(kb, false);
+    lv_obj_set_height(tabs, board::H - L.topH - L.kbH);
+    lv_obj_update_layout(scr);
+    lv_obj_scroll_to_view_recursive(ta, LV_ANIM_OFF);
+}
+static void hideKeyboard() {
+    lv_keyboard_set_textarea(kb, nullptr);
+    lv_obj_set_hidden(kb, true);
+    lv_obj_set_height(tabs, board::H - L.topH);
+}
 static void fieldFocus(lv_event_t* e) {
     lv_obj_t* ta = lv_event_get_target_obj(e);
     lv_event_code_t c = lv_event_get_code(e);
-    if (c == LV_EVENT_FOCUSED) { lv_keyboard_set_textarea(kb, ta); lv_obj_set_hidden(kb, false); }
-    else if (c == LV_EVENT_DEFOCUSED) { lv_keyboard_set_textarea(kb, nullptr); lv_obj_set_hidden(kb, true); }
+    if (c == LV_EVENT_FOCUSED) showKeyboard(ta);
+    else if (c == LV_EVENT_DEFOCUSED) hideKeyboard();
+    else if (c == LV_EVENT_READY || c == LV_EVENT_CANCEL) { lv_obj_remove_state(ta, LV_STATE_FOCUSED); hideKeyboard(); }
 }
 
 static lv_obj_t* field(lv_obj_t* parent, const char* placeholder, int w, int maxLen, const char* accepted = nullptr) {
@@ -96,10 +207,17 @@ static lv_obj_t* field(lv_obj_t* parent, const char* placeholder, int w, int max
     return ta;
 }
 
-static void tableStyle(lv_obj_t* t) {
-    lv_obj_set_style_text_font(t, &lv_font_montserrat_16, LV_PART_ITEMS);
-    lv_obj_set_style_pad_top(t, 6, LV_PART_ITEMS);
-    lv_obj_set_style_pad_bottom(t, 6, LV_PART_ITEMS);
+static lv_obj_t* table(lv_obj_t* parent) {
+    lv_obj_t* t = lv_table_create(parent);
+    lv_obj_set_style_text_font(t, L.fTable, LV_PART_ITEMS);
+    lv_obj_set_style_pad_top(t, L.cellPad, LV_PART_ITEMS);
+    lv_obj_set_style_pad_bottom(t, L.cellPad, LV_PART_ITEMS);
+    if (L.sz != Size::L) {
+        lv_obj_set_style_pad_left(t, L.cellPad + 2, LV_PART_ITEMS);
+        lv_obj_set_style_pad_right(t, L.cellPad + 2, LV_PART_ITEMS);
+        lv_obj_set_style_pad_all(t, 0, 0);
+    }
+    return t;
 }
 
 // ---------- acciones ----------
@@ -123,11 +241,12 @@ static void onModeSet(lv_event_t*) {
     mbMode = lv_msgbox_create(nullptr);                       // modal, sobre la capa superior
     lv_msgbox_add_title(mbMode, "Change tracker mode");
     lv_msgbox_add_text(mbMode, "The tracker restarts in the selected mode.");
-    lv_obj_set_width(mbMode, 520);
+    lv_obj_set_width(mbMode, board::W - 20 < 520 ? board::W - 20 : 520);
     lv_obj_t* bOk = lv_msgbox_add_footer_button(mbMode, "Switch");
     lv_obj_t* bNo = lv_msgbox_add_footer_button(mbMode, "Cancel");
-    lv_obj_set_size(bOk, 160, 52);
-    lv_obj_set_size(bNo, 160, 52);
+    int bw = L.sz == Size::S ? 90 : 160;
+    lv_obj_set_size(bOk, bw, L.btnH);
+    lv_obj_set_size(bNo, bw, L.btnH);
     lv_obj_add_event_cb(bOk, onModeSwitch, LV_EVENT_CLICKED, nullptr);
     lv_obj_add_event_cb(bNo, onModeCancel, LV_EVENT_CLICKED, nullptr);
 }
@@ -168,88 +287,85 @@ static void onTab(lv_event_t*) {
 }
 
 // ---------- construccion ----------
+static void column(lv_obj_t* tab) {
+    lv_obj_set_flex_flow(tab, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(tab, L.pad, 0);
+    lv_obj_set_style_pad_row(tab, L.pad, 0);
+}
+
 static void buildDash() {
-    lv_obj_set_flex_flow(tabDash, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(tabDash, 10, 0);
-    dashGnss = label(tabDash, "GNSS: -", F_BIG);
-    dashStatus = label(tabDash, "Tracker: -", F_BIG);
-    dashErr = label(tabDash, "");
+    column(tabDash);
+    const lv_font_t* f = L.sz == Size::L ? L.fBig : L.fBase;
+    dashGnss = wrapLabel(tabDash, "GNSS: -", f);
+    dashStatus = wrapLabel(tabDash, "Tracker: -", f);
+    dashErr = wrapLabel(tabDash, "");
     lv_obj_set_style_text_color(dashErr, lv_palette_main(LV_PALETTE_RED), 0);
 
-    lv_obj_t* row = lv_obj_create(tabDash);
-    lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(row, 16, 0);
-    button(row, "Beacon now", onBeacon);
-    label(row, "Digipeater");
-    swDigi = lv_switch_create(row);
+    lv_obj_t* r = row(tabDash);
+    button(r, "Beacon now", onBeacon);
+    label(r, "Digipeater");
+    swDigi = lv_switch_create(r);
     lv_obj_add_event_cb(swDigi, onDigi, LV_EVENT_VALUE_CHANGED, nullptr);
 
-    lv_obj_t* row2 = lv_obj_create(tabDash);
-    lv_obj_set_size(row2, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(row2, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(row2, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(row2, 16, 0);
-    label(row2, "Mode");
-    ddMode = lv_dropdown_create(row2);
-    lv_obj_set_width(ddMode, 320);
+    lv_obj_t* r2 = row(tabDash);
+    label(r2, "Mode");
+    ddMode = lv_dropdown_create(r2);
+    lv_obj_set_width(ddMode, L.ddW);
     lv_dropdown_set_options(ddMode, "-");
-    button(row2, "Switch mode", onModeSet);
+    button(r2, "Switch mode", onModeSet);
 }
 
 static void buildHeard() {
-    tblHeard = lv_table_create(tabHeard);
+    lv_obj_set_style_pad_all(tabHeard, L.pad, 0);
+    tblHeard = table(tabHeard);
     lv_obj_set_size(tblHeard, LV_PCT(100), LV_PCT(100));
-    tableStyle(tblHeard);
-    lv_table_set_column_count(tblHeard, 7);
-    const int w[7] = {160, 80, 120, 80, 70, 80, 230};       // 820 px: cabe en los 834 de la pestaña
-    for (int i = 0; i < 7; i++) lv_table_set_column_width(tblHeard, i, w[i]);
-    const char* h[7] = {"Station", "Sym", "Dist", "RSSI", "SNR", "Age", "Comment"};
-    for (int i = 0; i < 7; i++) lv_table_set_cell_value(tblHeard, 0, i, h[i]);
 }
 
 static void buildMsgs() {
-    lv_obj_set_flex_flow(tabMsgs, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(tabMsgs, 8, 0);
-    tblMsgs = lv_table_create(tabMsgs);
-    lv_obj_set_size(tblMsgs, LV_PCT(100), 280);
-    tableStyle(tblMsgs);
-    lv_table_set_column_count(tblMsgs, 4);
-    const int w[4] = {60, 170, 470, 120};
-    for (int i = 0; i < 4; i++) lv_table_set_column_width(tblMsgs, i, w[i]);
-    const char* h[4] = {"", "Station", "Text", "State"};
-    for (int i = 0; i < 4; i++) lv_table_set_cell_value(tblMsgs, 0, i, h[i]);
+    column(tabMsgs);
+    tblMsgs = table(tabMsgs);
+    lv_obj_set_size(tblMsgs, LV_PCT(100), L.sz == Size::L ? 280 : LV_PCT(48));
     lv_obj_add_event_cb(tblMsgs, onTblMsgs, LV_EVENT_VALUE_CHANGED, nullptr);
 
-    lv_obj_t* row = lv_obj_create(tabMsgs);
-    lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(row, 12, 0);
-    taTo = field(row, "To (EA7XXX-9)", 200, 9);
-    taText = field(row, "Message (max 67)", 420, 67);
-    button(row, "Send", onSend, nullptr, 120);
-    lblSendRes = label(tabMsgs, "");
+    if (L.sz == Size::L) {
+        lv_obj_t* r = row(tabMsgs);
+        taTo = field(r, "To (EA7XXX-9)", 200, 9);
+        taText = field(r, "Message (max 67)", 420, 67);
+        button(r, "Send", onSend, nullptr, 120);
+    } else {                                                      // texto a todo el ancho; debajo destino y boton
+        taText = field(tabMsgs, "Message (max 67)", 0, 67);
+        lv_obj_set_width(taText, LV_PCT(100));
+        lv_obj_t* r = row(tabMsgs);
+        taTo = field(r, L.sz == Size::S ? "To" : "To (EA7XXX-9)", L.sz == Size::M ? 160 : 110, 9);
+        button(r, "Send", onSend, nullptr, L.sz == Size::M ? 100 : 70);
+    }
+    lblSendRes = wrapLabel(tabMsgs, "");
 }
 
-static void buildSens() { lblSens = label(tabSens, "-", F_BIG); }
+static void buildSens() {
+    lv_obj_set_style_pad_all(tabSens, L.pad, 0);
+    lblSens = wrapLabel(tabSens, "-", L.sz == Size::L ? L.fBig : L.fBase);
+}
 
 static void buildSat() {
-    lv_obj_set_flex_flow(tabSat, LV_FLEX_FLOW_ROW);
-    lv_obj_set_style_pad_column(tabSat, 24, 0);
+    lv_obj_set_flex_flow(tabSat, L.sz == Size::L ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(tabSat, L.pad, 0);
+    lv_obj_set_style_pad_gap(tabSat, L.sz == Size::L ? 24 : L.pad, 0);
+    const lv_font_t* f = L.sz == Size::L ? L.fBig : L.fBase;
     lv_obj_t* left = lv_obj_create(tabSat);
-    lv_obj_set_size(left, 460, LV_PCT(100));
+    lv_obj_set_size(left, L.sz == Size::L ? 460 : LV_PCT(100), L.sz == Size::L ? LV_PCT(100) : LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(left, LV_FLEX_FLOW_COLUMN);
-    lblSat = label(left, "SAT mode inactive", F_BIG);
-    lblRot = label(left, "", F_BIG);
+    lv_obj_set_style_pad_all(left, L.pad, 0);
+    lblSat = wrapLabel(left, "SAT mode inactive", f);
+    lblRot = wrapLabel(left, "", f);
     lv_obj_t* right = lv_obj_create(tabSat);
-    lv_obj_set_size(right, 340, LV_PCT(100));
+    lv_obj_set_size(right, L.sz == Size::L ? 340 : LV_PCT(100), L.sz == Size::L ? LV_PCT(100) : LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(right, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(right, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(right, L.pad, 0);
     label(right, "Azimuth");
     arcAz = lv_arc_create(right);
-    lv_obj_set_size(arcAz, 220, 220);
+    lv_obj_set_size(arcAz, L.arc, L.arc);
     lv_arc_set_range(arcAz, 0, 360);
     lv_arc_set_bg_angles(arcAz, 0, 360);
     lv_arc_set_rotation(arcAz, 270);
@@ -257,47 +373,40 @@ static void buildSat() {
     lv_obj_set_clickable(arcAz, false);
     label(right, "Elevation");
     barEl = lv_bar_create(right);
-    lv_obj_set_size(barEl, 260, 24);
+    lv_obj_set_size(barEl, L.arc + 40 > 260 ? 260 : L.arc + 40, L.sz == Size::S ? 14 : 24);
     lv_bar_set_range(barEl, 0, 90);
 }
 
 static void buildMirror() {
-    lv_obj_set_flex_flow(tabMirror, LV_FLEX_FLOW_COLUMN);
-    lblMirrorTitle = label(tabMirror, "Tracker screen (mirror)", F_BIG);
-    lblMirror = label(tabMirror, "Open this tab with the tracker linked", F_MONO);
+    column(tabMirror);
+    lblMirrorTitle = wrapLabel(tabMirror, "Tracker screen (mirror)", L.sz == Size::L ? L.fBig : L.fBase);
+    lblMirror = label(tabMirror, "Open this tab with the tracker linked", L.fMono);
 }
 
 static void buildPages() {
-    tblPages = lv_table_create(tabPages);
+    lv_obj_set_style_pad_all(tabPages, L.pad, 0);
+    tblPages = table(tabPages);
     lv_obj_set_size(tblPages, LV_PCT(100), LV_PCT(100));
-    tableStyle(tblPages);
-    lv_table_set_column_count(tblPages, 3);
-    lv_table_set_column_width(tblPages, 0, 110); lv_table_set_column_width(tblPages, 1, 100); lv_table_set_column_width(tblPages, 2, 610);
-    lv_table_set_cell_value(tblPages, 0, 0, "RIC"); lv_table_set_cell_value(tblPages, 0, 1, "RSSI"); lv_table_set_cell_value(tblPages, 0, 2, "Text");
 }
 
 static void buildSet() {
-    lv_obj_set_flex_flow(tabSet, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(tabSet, 10, 0);
-    lblSetInfo = label(tabSet, "", F_BIG);
-    label(tabSet, "Tracker control PIN (WebUI > Bluetooth > Control PIN, default 123456)");
-    taPin = field(tabSet, "PIN", 220, 6, "0123456789");
+    column(tabSet);
+    lblSetInfo = wrapLabel(tabSet, "", L.sz == Size::L ? L.fBig : L.fBase);
+    wrapLabel(tabSet, "Tracker control PIN (WebUI > Bluetooth > Control PIN, default 123456)");
+    taPin = field(tabSet, "PIN", L.sz == Size::L ? 220 : 130, 6, "0123456789");
     char b[12]; snprintf(b, sizeof b, "%06lu", (unsigned long)trk::pin()); lv_textarea_set_text(taPin, b);
-    label(tabSet, "Tracker address (empty = first tracker heard)");
-    taPeer = field(tabSet, "AA:BB:CC:DD:EE:FF", 320, 17);
+    wrapLabel(tabSet, "Tracker address (empty = first tracker heard)");
+    taPeer = field(tabSet, "AA:BB:CC:DD:EE:FF", L.sz == Size::L ? 320 : L.sz == Size::M ? 240 : 200, 17);
     lv_textarea_set_text(taPeer, trk::peerAddress().c_str());
-    lv_obj_t* row = lv_obj_create(tabSet);
-    lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_style_pad_column(row, 12, 0);
-    button(row, "Save and reconnect", onSavePin, nullptr, 260);
-    button(row, "Forget pairing", onForget, nullptr, 220);
-    button(row, "Reconnect", onReconnect, nullptr, 180);
-    lblPinRes = label(tabSet, "");
+    lv_obj_t* r = row(tabSet);
+    button(r, L.sz == Size::S ? "Save" : "Save and reconnect", onSavePin, nullptr, L.sz == Size::L ? 260 : 0);
+    button(r, L.sz == Size::S ? "Forget" : "Forget pairing", onForget);
+    button(r, "Reconnect", onReconnect);
+    lblPinRes = wrapLabel(tabSet, "");
     lv_obj_set_style_text_color(lblPinRes, lv_palette_main(LV_PALETTE_RED), 0);
     label(tabSet, "Backlight");
     slBack = lv_slider_create(tabSet);
-    lv_obj_set_width(slBack, 400);
+    lv_obj_set_width(slBack, L.sz == Size::L ? 400 : LV_PCT(85));
     lv_slider_set_range(slBack, 5, 100);
     lv_slider_set_value(slBack, 100, LV_ANIM_OFF);
     lv_obj_add_event_cb(slBack, onBack, LV_EVENT_VALUE_CHANGED, nullptr);
@@ -310,13 +419,17 @@ static void showSplash(lv_obj_t* mainScr) {
     lv_obj_set_style_bg_color(sp, lv_color_hex(SPLASH_BG_RGB), 0);
     lv_obj_set_style_bg_opa(sp, LV_OPA_COVER, 0);
     lv_obj_set_scrollable(sp, false);
+    // LVGL 9 no escala imagenes indexadas: hay una pequena hecha de antemano (tools/make_ui_assets.py)
+    const lv_image_dsc_t* sim = board::H >= 600 ? &img_splash : &img_splash_small;
     lv_obj_t* img = lv_image_create(sp);
-    lv_image_set_src(img, &img_splash);
-    lv_obj_align(img, LV_ALIGN_CENTER, 0, -18);
+    lv_image_set_src(img, sim);
+    const int hShown = sim->header.h;
+    lv_obj_align(img, LV_ALIGN_CENTER, 0, -L.topH / 2);
     lv_obj_t* ver = lv_label_create(sp);
     lv_label_set_text(ver, "Display " DISPLAY_VERSION);
+    lv_obj_set_style_text_font(ver, L.fBase, 0);
     lv_obj_set_style_text_color(ver, lv_color_hex(0x28B5E1), 0);
-    lv_obj_align_to(ver, img, LV_ALIGN_OUT_BOTTOM_MID, 0, 6);
+    lv_obj_align(ver, LV_ALIGN_CENTER, 0, -L.topH / 2 + hShown / 2 + 4 + lv_font_get_line_height(L.fBase) / 2);
     lv_screen_load(sp);
     lv_obj_fade_in(img, 700, 0);
     lv_obj_fade_in(ver, 700, 300);
@@ -325,46 +438,67 @@ static void showSplash(lv_obj_t* mainScr) {
 
 void begin(proto::Model* model) {
     M = model;
-    lv_obj_t* scr = lv_obj_create(nullptr);
-    lv_obj_set_style_text_font(scr, &lv_font_montserrat_20, 0);
+    L = makeLayout(board::W, board::H);
+    pickColumns();
+    // tema con la fuente de esta pantalla (botones, listas, campos y teclado la heredan)
+    lv_display_t* d = lv_display_get_default();
+    lv_display_set_theme(d, lv_theme_default_init(d, lv_palette_main(LV_PALETTE_BLUE), lv_palette_main(LV_PALETTE_RED), false, L.fBase));
+    lv_obj_set_style_text_font(lv_layer_top(), L.fBase, 0);     // la ventana de modo y el teclado viven en la capa superior
+    scr = lv_obj_create(nullptr);
+    lv_obj_set_style_text_font(scr, L.fBase, 0);
 
     lv_obj_t* top = lv_obj_create(scr);
-    lv_obj_set_size(top, board::W, 48);
+    lv_obj_set_size(top, board::W, L.topH);
     lv_obj_set_pos(top, 0, 0);
     lv_obj_set_style_radius(top, 0, 0);
     lv_obj_set_style_pad_ver(top, 0, 0);
+    lv_obj_set_style_pad_hor(top, L.pad, 0);
     lv_obj_set_scrollable(top, false);
-    lv_obj_t* icon = lv_image_create(top);                      // icono de la app, como en las WebUI
+    lv_obj_t* icon = lv_image_create(top);                    // icono de la app, como en las WebUI
     lv_image_set_src(icon, &img_app_icon);
-    lv_obj_align(icon, LV_ALIGN_LEFT_MID, -6, 0);
-    lv_obj_t* title = label(top, "APRS LoRa+ Display " DISPLAY_VERSION, F_BIG);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 44, 0);
-    topLink = label(top, "", nullptr);
-    lv_obj_align(topLink, LV_ALIGN_RIGHT_MID, -6, 0);
-    topInfo = label(top, "", nullptr);
-    lv_obj_align(topInfo, LV_ALIGN_CENTER, 90, 0);
+    if (L.iconScale != 256) {
+        lv_image_set_scale(icon, L.iconScale);
+        lv_obj_set_size(icon, 40 * L.iconScale / 256, 40 * L.iconScale / 256);
+        lv_image_set_inner_align(icon, LV_IMAGE_ALIGN_CENTER);
+    }
+    lv_obj_align(icon, LV_ALIGN_LEFT_MID, L.sz == Size::L ? -6 : 0, 0);
+    const int iconW = L.sz == Size::L ? 34 : 40 * L.iconScale / 256;
+    lv_obj_t* title = label(top, L.sz == Size::L ? "APRS LoRa+ Display " DISPLAY_VERSION : "APRS LoRa+",
+                            L.sz == Size::L ? L.fBig : L.fBase);
+    lv_obj_align(title, LV_ALIGN_LEFT_MID, iconW + (L.sz == Size::L ? 10 : 6), 0);
+    topLink = label(top, "");
+    lv_obj_align(topLink, LV_ALIGN_RIGHT_MID, 0, 0);
+    topInfo = label(top, "");
+    if (L.sz == Size::L) lv_obj_align(topInfo, LV_ALIGN_CENTER, 90, 0);
+    else if (L.sz == Size::M) lv_obj_align(topInfo, LV_ALIGN_CENTER, -10, 0);
+    else lv_obj_set_hidden(topInfo, true);
 
     tabs = lv_tabview_create(scr);
-    lv_tabview_set_tab_bar_position(tabs, LV_DIR_LEFT);
-    lv_tabview_set_tab_bar_size(tabs, 150);
-    lv_obj_set_size(tabs, board::W, board::H - 48);
-    lv_obj_set_pos(tabs, 0, 48);
-    tabDash = lv_tabview_add_tab(tabs, "Status");
-    tabHeard = lv_tabview_add_tab(tabs, "Heard");
-    tabMsgs = lv_tabview_add_tab(tabs, "Messages");
-    tabSens = lv_tabview_add_tab(tabs, "Sensors");
-    tabSat = lv_tabview_add_tab(tabs, "SAT / Rotor");
-    tabMirror = lv_tabview_add_tab(tabs, "Mirror");
-    tabPages = lv_tabview_add_tab(tabs, "DAPNET");
-    tabSet = lv_tabview_add_tab(tabs, "Settings");
+    lv_tabview_set_tab_bar_position(tabs, L.tabPos);
+    lv_tabview_set_tab_bar_size(tabs, L.tabBar);
+    lv_obj_set_size(tabs, board::W, board::H - L.topH);
+    lv_obj_set_pos(tabs, 0, L.topH);
+    lv_obj_set_style_text_font(lv_tabview_get_tab_bar(tabs), L.fTab, 0);
+    struct { const char* text; const char* icon; lv_obj_t** tab; } T[] = {
+        {"Status", LV_SYMBOL_HOME, &tabDash}, {"Heard", LV_SYMBOL_LIST, &tabHeard}, {"Messages", LV_SYMBOL_ENVELOPE, &tabMsgs},
+        {"Sensors", LV_SYMBOL_BATTERY_FULL, &tabSens}, {"SAT / Rotor", LV_SYMBOL_GPS, &tabSat}, {"Mirror", LV_SYMBOL_EYE_OPEN, &tabMirror},
+        {"DAPNET", LV_SYMBOL_BELL, &tabPages}, {"Settings", LV_SYMBOL_SETTINGS, &tabSet}};
+    for (auto& t : T) *t.tab = lv_tabview_add_tab(tabs, L.tabIcons ? t.icon : t.text);
     lv_obj_add_event_cb(tabs, onTab, LV_EVENT_VALUE_CHANGED, nullptr);
 
     kb = lv_keyboard_create(lv_layer_top());
-    lv_obj_set_size(kb, board::W, 250);
+    lv_obj_set_size(kb, board::W, L.kbH);
     lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_set_hidden(kb, true);
 
     buildDash(); buildHeard(); buildMsgs(); buildSens(); buildSat(); buildMirror(); buildPages(); buildSet();
+
+    // las columnas se reparten con el ancho real de cada tabla, que se conoce despues de colocar todo
+    lv_obj_update_layout(scr);
+    setupTable(tblHeard, colsHeard);
+    setupTable(tblMsgs, colsMsgs);
+    setupTable(tblPages, colsPages);
+
     showSplash(scr);
 }
 
@@ -377,11 +511,12 @@ void update() {
     if (!M) return;
     char b[512];
     trk::State s = trk::state();
-    snprintf(b, sizeof b, "%s%s%s", trk::stateText(), s == trk::State::Linked ? ": " : "", s == trk::State::Linked ? trk::peerName().c_str() : "");
+    const bool name = s == trk::State::Linked && L.sz != Size::S;   // en la pequena no cabe el nombre (esta en Settings)
+    snprintf(b, sizeof b, "%s%s%s", trk::stateText(), name ? ": " : "", name ? trk::peerName().c_str() : "");
     setText(topLink, b);
     lv_obj_set_style_text_color(topLink, s == trk::State::Linked ? lv_palette_main(LV_PALETTE_GREEN) : lv_palette_main(LV_PALETTE_ORANGE), 0);
     char setb[256];
-    snprintf(setb, sizeof setb, "BLE link: %s\nTracker: %s  fw %s", trk::stateText(), M->info.ok ? M->info.board.c_str() : "-", M->info.ok ? M->info.fw.c_str() : "-");
+    snprintf(setb, sizeof setb, "BLE link: %s %s\nTracker: %s  fw %s", trk::stateText(), trk::state() == trk::State::Linked ? trk::peerName().c_str() : "", M->info.ok ? M->info.board.c_str() : "-", M->info.ok ? M->info.fw.c_str() : "-");
     setText(lblSetInfo, setb);
     if (M->revision == drawnRev) return;
     drawnRev = M->revision;
@@ -428,23 +563,23 @@ void update() {
         char d[16] = "-", r[16], sn[16], a[16];
         if (h.hasPos && M->gnss.fix) snprintf(d, sizeof d, "%.1f km", distKm(M->gnss.lat, M->gnss.lon, h.lat, h.lon));
         snprintf(r, sizeof r, "%d", h.rssi); snprintf(sn, sizeof sn, "%.1f", h.snr); fmtAge(a, sizeof a, h.age);
-        lv_table_set_cell_value(tblHeard, i + 1, 0, h.call.c_str());
-        lv_table_set_cell_value(tblHeard, i + 1, 1, h.sym);
-        lv_table_set_cell_value(tblHeard, i + 1, 2, d);
-        lv_table_set_cell_value(tblHeard, i + 1, 3, r);
-        lv_table_set_cell_value(tblHeard, i + 1, 4, sn);
-        lv_table_set_cell_value(tblHeard, i + 1, 5, a);
-        lv_table_set_cell_value(tblHeard, i + 1, 6, h.cmt.c_str());
+        cell(tblHeard, colsHeard, i + 1, H_CALL, h.call.c_str());
+        cell(tblHeard, colsHeard, i + 1, H_SYM, h.sym);
+        cell(tblHeard, colsHeard, i + 1, H_DIST, d);
+        cell(tblHeard, colsHeard, i + 1, H_RSSI, r);
+        cell(tblHeard, colsHeard, i + 1, H_SNR, sn);
+        cell(tblHeard, colsHeard, i + 1, H_AGE, a);
+        cell(tblHeard, colsHeard, i + 1, H_CMT, h.cmt.c_str());
     }
 
     // Mensajes
     lv_table_set_row_count(tblMsgs, M->msgs.size() + 1);
     for (size_t i = 0; i < M->msgs.size(); i++) {
         const proto::Msg& g = M->msgs[i];
-        lv_table_set_cell_value(tblMsgs, i + 1, 0, g.dir == 'T' ? ">" : "<");
-        lv_table_set_cell_value(tblMsgs, i + 1, 1, g.call.c_str());
-        lv_table_set_cell_value(tblMsgs, i + 1, 2, g.text.c_str());
-        lv_table_set_cell_value(tblMsgs, i + 1, 3, g.dir == 'T' ? stName(g.st) : (g.st == 0 ? "new" : ""));
+        cell(tblMsgs, colsMsgs, i + 1, G_DIR, g.dir == 'T' ? ">" : "<");
+        cell(tblMsgs, colsMsgs, i + 1, G_CALL, g.call.c_str());
+        cell(tblMsgs, colsMsgs, i + 1, G_TEXT, g.text.c_str());
+        cell(tblMsgs, colsMsgs, i + 1, G_STATE, g.dir == 'T' ? stName(g.st) : (g.st == 0 ? "new" : ""));
     }
 
     // Sensores
@@ -525,9 +660,9 @@ void update() {
     for (size_t i = 0; i < M->pages.size(); i++) {
         char r[16], q[16];
         snprintf(r, sizeof r, "%lu", (unsigned long)M->pages[i].ric); snprintf(q, sizeof q, "%d", M->pages[i].rssi);
-        lv_table_set_cell_value(tblPages, i + 1, 0, r);
-        lv_table_set_cell_value(tblPages, i + 1, 1, q);
-        lv_table_set_cell_value(tblPages, i + 1, 2, M->pages[i].text.c_str());
+        cell(tblPages, colsPages, i + 1, P_RIC, r);
+        cell(tblPages, colsPages, i + 1, P_RSSI, q);
+        cell(tblPages, colsPages, i + 1, P_TEXT, M->pages[i].text.c_str());
     }
 }
 

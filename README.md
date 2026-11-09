@@ -1,6 +1,15 @@
 # APRS LoRa+ Display
 
-Pantalla grande y táctil para el tracker **APRS LoRa+** ([EA7JRS/APRS-LoRa-Plus](https://github.com/EA7JRS/APRS-LoRa-Plus)). Funciona sobre la **Waveshare ESP32-S3-Touch-LCD-7B** (1024×600) y se conecta al tracker por **Bluetooth LE**, con el mismo servicio de control y el mismo PIN que la app de Android (`docs/BLE_CONTROL.md` del firmware).
+Pantalla táctil para el tracker **APRS LoRa+** ([EA7JRS/APRS-LoRa-Plus](https://github.com/EA7JRS/APRS-LoRa-Plus)). Se conecta al tracker por **Bluetooth LE**, con el mismo servicio de control y el mismo PIN que la app de Android (`docs/BLE_CONTROL.md` del firmware).
+
+| Placa Waveshare | Pantalla | Entorno |
+|---|---|---|
+| ESP32-S3-Touch-LCD-7B | 7", 1024×600 | `waveshare_lcd7b` |
+| ESP32-S3-Touch-LCD-3.5 y 3.5-C | 3,5", 480×320 (horizontal) | `waveshare_lcd35` |
+| ESP32-S3-Touch-LCD-2.8B | 2,8", 480×640 (vertical) | `waveshare_lcd28b` |
+| ESP32-S3-Touch-LCD-1.69 | 1,69", 240×280 | `waveshare_lcd169` |
+
+La interfaz es la misma en todas y se adapta al tamaño (en las pequeñas las pestañas son iconos y las tablas tienen menos columnas). Pines y lo que falta por verificar de cada placa: `docs/HARDWARE.md`.
 
 No es un tracker: no lleva radio LoRa ni GPS. Solo muestra los datos del tracker y lo controla.
 
@@ -28,7 +37,7 @@ Copyright (C) 2026 Manuel - EA7JRS. GPL-3.0-or-later.
 ## Compilar
 
 ```
-pio run -e waveshare_lcd7b
+pio run -e waveshare_lcd7b      # o waveshare_lcd35, waveshare_lcd28b, waveshare_lcd169
 ```
 
 Usa pioarduino (Arduino-ESP32 3.x), LVGL 9.6, NimBLE-Arduino 2.5 y ArduinoJson 7.4. La CI compila en cada subida y ejecuta las pruebas del protocolo en el PC (`test/test_protocol.cpp`).
@@ -39,4 +48,4 @@ Desde el instalador web del proyecto (Chrome o Edge, placa por USB): https://ea7
 
 ## Estado
 
-**Sin probar en la placa.** Ver `docs/HARDWARE_LCD7B.md` para lo que está sin verificar (expansor de E/S, tiempos del panel) antes del primer arranque.
+**Sin probar en las placas.** Ver `docs/HARDWARE.md` para lo que está sin verificar de cada una antes del primer arranque.
