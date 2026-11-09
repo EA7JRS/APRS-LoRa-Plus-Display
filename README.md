@@ -31,7 +31,7 @@ Copyright (C) 2026 Manuel - EA7JRS. GPL-3.0-or-later.
 pio run -e waveshare_lcd7b
 ```
 
-Usa pioarduino (Arduino-ESP32 3.x), LVGL 8.4, NimBLE-Arduino 2.x y ArduinoJson 7. La CI compila en cada subida y ejecuta las pruebas del protocolo en el PC (`test/test_protocol.cpp`).
+Usa pioarduino (Arduino-ESP32 3.x), LVGL 9.6, NimBLE-Arduino 2.5 y ArduinoJson 7.4. La CI compila en cada subida y ejecuta las pruebas del protocolo en el PC (`test/test_protocol.cpp`).
 
 ## Instalar
 

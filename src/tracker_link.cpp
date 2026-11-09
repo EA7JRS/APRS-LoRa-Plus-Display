@@ -7,6 +7,7 @@
 #include <Arduino.h>
 #include <NimBLEDevice.h>
 #include <Preferences.h>
+#include <cctype>
 #include <deque>
 #include <mutex>
 
@@ -31,11 +32,19 @@ static Preferences prefs;
 
 static void setState(State s) { st = s; }
 
+// las direcciones se comparan sin mayusculas: NimBLE las da en minusculas y se suelen teclear en mayusculas
+static std::string lower(std::string a) {
+    for (char& c : a) c = (char)tolower((unsigned char)c);
+    return a;
+}
+static std::string wanted() { std::lock_guard<std::mutex> g(mx); return wantAddr; }
+
 class ScanCb : public NimBLEScanCallbacks {
     void onResult(const NimBLEAdvertisedDevice* d) override {
         if (gotDevice) return;
         bool match;
-        if (!wantAddr.empty()) match = (d->getAddress().toString() == wantAddr);
+        std::string want = wanted();
+        if (!want.empty()) match = (lower(d->getAddress().toString()) == lower(want));
         else match = d->isAdvertisingService(UUID_CTRL) || d->isAdvertisingService(UUID_KISS) || d->isAdvertisingService(UUID_TNC2);
         if (!match) return;
         foundAddr = d->getAddress();
@@ -49,7 +58,7 @@ static ScanCb scanCb;
 class ClientCb : public NimBLEClientCallbacks {
     void onDisconnect(NimBLEClient*, int reason) override { Serial.printf("[ble] desconectado (%d)\n", reason); }
     void onPassKeyEntry(NimBLEConnInfo& info) override { NimBLEDevice::injectPassKey(info, pinCode); }
-    void onConfirmPasskey(NimBLEConnInfo& info, uint32_t pass) override { NimBLEDevice::injectConfirmPasskey(info, true); }
+    void onConfirmPasskey(NimBLEConnInfo& info, uint32_t) override { NimBLEDevice::injectConfirmPasskey(info, true); }
 };
 static ClientCb clientCb;
 
@@ -68,8 +77,7 @@ static void session() {
     cli->setConnectTimeout(8000);
     setState(State::Connecting);
     if (!cli->connect(foundAddr)) { Serial.println("[ble] no se pudo conectar"); NimBLEDevice::deleteClient(cli); setState(State::Failed); return; }
-    peer = foundName.empty() ? foundAddr.toString() : foundName;
-    if (wantAddr.empty()) { prefs.putString("addr", foundAddr.toString().c_str()); }
+    { std::lock_guard<std::mutex> g(mx); peer = foundName.empty() ? foundAddr.toString() : foundName; }
 
     NimBLERemoteService* svc = cli->getService(UUID_CTRL);
     NimBLERemoteCharacteristic *cmd = svc ? svc->getCharacteristic(UUID_CMD) : nullptr, *evt = svc ? svc->getCharacteristic(UUID_EVT) : nullptr;
@@ -87,20 +95,17 @@ static void session() {
 
     { std::lock_guard<std::mutex> g(mx); lineBuf.reset(); rxLines.clear(); txLines.clear(); }
     setState(State::Linked);
-    Serial.printf("[ble] enlazado con %s\n", peer.c_str());
+    Serial.printf("[ble] enlazado con %s\n", peerName().c_str());
 
-    uint32_t last = millis();
     while (cli->isConnected() && !doReconnect && !doForget) {
         std::string out;
         { std::lock_guard<std::mutex> g(mx); if (!txLines.empty()) { out = txLines.front(); txLines.pop_front(); } }
         if (!out.empty()) {
             if (!writeLine(cmd, out)) Serial.println("[ble] fallo al escribir una orden");
-            last = millis();
             delay(30);                                  // el tracker procesa las ordenes en su bucle: no apilar
         } else {
             delay(10);
         }
-        (void)last;
     }
     if (cli->isConnected()) cli->disconnect();
     NimBLEDevice::deleteClient(cli);
@@ -148,13 +153,13 @@ const char* stateText() {
         default: return "failed";
     }
 }
-std::string peerName() { return peer; }
+std::string peerName() { std::lock_guard<std::mutex> g(mx); return peer; }
 void send(const std::string& line) { std::lock_guard<std::mutex> g(mx); if (txLines.size() < 16) txLines.push_back(line); }
 bool poll(std::string& line) { std::lock_guard<std::mutex> g(mx); if (rxLines.empty()) return false; line = rxLines.front(); rxLines.pop_front(); return true; }
 void setPin(uint32_t p) { pinCode = p % 1000000; prefs.putUInt("pin", pinCode); }
 uint32_t pin() { return pinCode; }
-void setPeerAddress(const std::string& a) { wantAddr = a; prefs.putString("want", a.c_str()); }
-std::string peerAddress() { return wantAddr; }
+void setPeerAddress(const std::string& a) { { std::lock_guard<std::mutex> g(mx); wantAddr = a; } prefs.putString("want", a.c_str()); }
+std::string peerAddress() { return wanted(); }
 void forgetPairing() { doForget = true; doReconnect = true; }
 void reconnect() { doReconnect = true; }
 

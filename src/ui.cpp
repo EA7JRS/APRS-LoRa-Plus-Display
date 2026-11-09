@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Manuel - EA7JRS
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Interfaz LVGL 8.4 para 1024x600 tactil. Textos en ingles y sin acentos (las fuentes integradas de LVGL no los llevan).
+ * Interfaz LVGL 9.6 para 1024x600 tactil. Textos en ingles y sin acentos (las fuentes integradas de LVGL no los llevan).
  */
 #include "ui.h"
 #include "board_lcd7b.h"
@@ -11,6 +11,8 @@
 #include <lvgl.h>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 namespace ui {
 
@@ -36,7 +38,7 @@ static lv_obj_t *lblMirrorTitle, *lblMirror;
 // dapnet
 static lv_obj_t* tblPages;
 // ajustes
-static lv_obj_t *taPin, *taPeer, *lblSetInfo, *slBack;
+static lv_obj_t *taPin, *taPeer, *lblSetInfo, *lblPinRes, *slBack;
 
 static const lv_font_t* F_BIG = &lv_font_montserrat_24;
 static const lv_font_t* F_MONO = &lv_font_unscii_16;
@@ -54,6 +56,11 @@ static void fmtAge(char* b, size_t n, int s) {
     else snprintf(b, n, "%dh%02dm", s / 3600, (s % 3600) / 60);
 }
 
+// solo cambia el texto si es distinto (lv_label_set_text siempre manda repintar)
+static void setText(lv_obj_t* l, const char* t) {
+    if (strcmp(lv_label_get_text(l), t) != 0) lv_label_set_text(l, t);
+}
+
 static lv_obj_t* label(lv_obj_t* parent, const char* t, const lv_font_t* f = nullptr) {
     lv_obj_t* l = lv_label_create(parent);
     lv_label_set_text(l, t);
@@ -62,7 +69,7 @@ static lv_obj_t* label(lv_obj_t* parent, const char* t, const lv_font_t* f = nul
 }
 
 static lv_obj_t* button(lv_obj_t* parent, const char* t, lv_event_cb_t cb, void* ud = nullptr, int w = 220) {
-    lv_obj_t* b = lv_btn_create(parent);
+    lv_obj_t* b = lv_button_create(parent);
     lv_obj_set_size(b, w, 56);
     lv_obj_t* l = lv_label_create(b);
     lv_label_set_text(l, t);
@@ -72,10 +79,10 @@ static lv_obj_t* button(lv_obj_t* parent, const char* t, lv_event_cb_t cb, void*
 }
 
 static void fieldFocus(lv_event_t* e) {
-    lv_obj_t* ta = lv_event_get_target(e);
+    lv_obj_t* ta = lv_event_get_target_obj(e);
     lv_event_code_t c = lv_event_get_code(e);
-    if (c == LV_EVENT_FOCUSED) { lv_keyboard_set_textarea(kb, ta); lv_obj_clear_flag(kb, LV_OBJ_FLAG_HIDDEN); }
-    else if (c == LV_EVENT_DEFOCUSED) { lv_keyboard_set_textarea(kb, nullptr); lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN); }
+    if (c == LV_EVENT_FOCUSED) { lv_keyboard_set_textarea(kb, ta); lv_obj_set_hidden(kb, false); }
+    else if (c == LV_EVENT_DEFOCUSED) { lv_keyboard_set_textarea(kb, nullptr); lv_obj_set_hidden(kb, true); }
 }
 
 static lv_obj_t* field(lv_obj_t* parent, const char* placeholder, int w, int maxLen, const char* accepted = nullptr) {
@@ -98,23 +105,31 @@ static void tableStyle(lv_obj_t* t) {
 // ---------- acciones ----------
 static void onBeacon(lv_event_t*) { trk::send(proto::cmdSimple("beacon")); }
 static void onDigi(lv_event_t* e) {
-    bool on = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
+    bool on = lv_obj_has_state(lv_event_get_target_obj(e), LV_STATE_CHECKED);
     trk::send("{\"c\":\"digi\",\"on\":" + std::string(on ? "true" : "false") + "}\n");
 }
-static void onModeConfirm(lv_event_t* e) {
-    lv_obj_t* mb = lv_event_get_current_target(e);
-    uint16_t btn = lv_msgbox_get_active_btn(mb);
-    if (btn == 0 && M) {
-        uint16_t sel = lv_dropdown_get_selected(ddMode);
+static lv_obj_t* mbMode = nullptr;
+static void onModeSwitch(lv_event_t*) {
+    if (M) {
+        uint32_t sel = lv_dropdown_get_selected(ddMode);
         if (sel < M->info.modeIds.size()) trk::send(proto::cmdMode(M->info.modeIds[sel]));
     }
-    lv_msgbox_close(mb);
+    lv_msgbox_close(mbMode);
+    mbMode = nullptr;
 }
+static void onModeCancel(lv_event_t*) { lv_msgbox_close(mbMode); mbMode = nullptr; }
 static void onModeSet(lv_event_t*) {
-    static const char* btns[] = {"Switch", "Cancel", ""};
-    lv_obj_t* mb = lv_msgbox_create(nullptr, "Change tracker mode", "The tracker restarts in the selected mode.", btns, false);
-    lv_obj_center(mb);
-    lv_obj_add_event_cb(mb, onModeConfirm, LV_EVENT_VALUE_CHANGED, nullptr);
+    if (mbMode) return;
+    mbMode = lv_msgbox_create(nullptr);                       // modal, sobre la capa superior
+    lv_msgbox_add_title(mbMode, "Change tracker mode");
+    lv_msgbox_add_text(mbMode, "The tracker restarts in the selected mode.");
+    lv_obj_set_width(mbMode, 520);
+    lv_obj_t* bOk = lv_msgbox_add_footer_button(mbMode, "Switch");
+    lv_obj_t* bNo = lv_msgbox_add_footer_button(mbMode, "Cancel");
+    lv_obj_set_size(bOk, 160, 52);
+    lv_obj_set_size(bNo, 160, 52);
+    lv_obj_add_event_cb(bOk, onModeSwitch, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(bNo, onModeCancel, LV_EVENT_CLICKED, nullptr);
 }
 static void onSend(lv_event_t*) {
     const char* to = lv_textarea_get_text(taTo);
@@ -126,22 +141,26 @@ static void onSend(lv_event_t*) {
     trk::send(proto::cmdMsgs(0, 10));
 }
 static void onTblMsgs(lv_event_t*) {
-    uint16_t r, c;
+    uint32_t r, c;
     lv_table_get_selected_cell(tblMsgs, &r, &c);
+    if (r == LV_TABLE_CELL_NONE) return;
     if (r >= 1 && M && r - 1 < M->msgs.size() && !M->msgs[r - 1].call.empty()) lv_textarea_set_text(taTo, M->msgs[r - 1].call.c_str());
 }
 static void onSavePin(lv_event_t*) {
-    trk::setPin((uint32_t)atol(lv_textarea_get_text(taPin)));
+    const char* p = lv_textarea_get_text(taPin);
+    if (strlen(p) != 6) { lv_label_set_text(lblPinRes, "The PIN has 6 digits"); return; }
+    lv_label_set_text(lblPinRes, "");
+    trk::setPin((uint32_t)atol(p));
     trk::setPeerAddress(lv_textarea_get_text(taPeer));
     trk::reconnect();
 }
 static void onForget(lv_event_t*) { trk::forgetPairing(); }
 static void onReconnect(lv_event_t*) { trk::reconnect(); }
-static void onBack(lv_event_t* e) { board::setBacklight(lv_slider_get_value(lv_event_get_target(e))); }
+static void onBack(lv_event_t* e) { board::setBacklight(lv_slider_get_value(lv_event_get_target_obj(e))); }
 
 static void onTab(lv_event_t*) {
     // al abrir cada pestaña se piden sus datos al momento
-    uint16_t t = lv_tabview_get_tab_act(tabs);
+    uint32_t t = lv_tabview_get_tab_active(tabs);
     if (t == 1) trk::send(proto::cmdHeard(0, 12));
     if (t == 2) trk::send(proto::cmdMsgs(0, 10));
     if (t == 5) trk::send(proto::cmdScreen(2)); else trk::send(proto::cmdScreen(0));
@@ -158,7 +177,7 @@ static void buildDash() {
     lv_obj_set_style_text_color(dashErr, lv_palette_main(LV_PALETTE_RED), 0);
 
     lv_obj_t* row = lv_obj_create(tabDash);
-    lv_obj_set_size(row, LV_PCT(100), 80);
+    lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(row, 16, 0);
@@ -168,7 +187,7 @@ static void buildDash() {
     lv_obj_add_event_cb(swDigi, onDigi, LV_EVENT_VALUE_CHANGED, nullptr);
 
     lv_obj_t* row2 = lv_obj_create(tabDash);
-    lv_obj_set_size(row2, LV_PCT(100), 80);
+    lv_obj_set_size(row2, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(row2, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row2, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(row2, 16, 0);
@@ -183,9 +202,9 @@ static void buildHeard() {
     tblHeard = lv_table_create(tabHeard);
     lv_obj_set_size(tblHeard, LV_PCT(100), LV_PCT(100));
     tableStyle(tblHeard);
-    lv_table_set_col_cnt(tblHeard, 7);
-    const int w[7] = {170, 70, 100, 90, 80, 90, 330};
-    for (int i = 0; i < 7; i++) lv_table_set_col_width(tblHeard, i, w[i]);
+    lv_table_set_column_count(tblHeard, 7);
+    const int w[7] = {160, 80, 120, 80, 70, 80, 230};       // 820 px: cabe en los 834 de la pestaña
+    for (int i = 0; i < 7; i++) lv_table_set_column_width(tblHeard, i, w[i]);
     const char* h[7] = {"Station", "Sym", "Dist", "RSSI", "SNR", "Age", "Comment"};
     for (int i = 0; i < 7; i++) lv_table_set_cell_value(tblHeard, 0, i, h[i]);
 }
@@ -196,20 +215,20 @@ static void buildMsgs() {
     tblMsgs = lv_table_create(tabMsgs);
     lv_obj_set_size(tblMsgs, LV_PCT(100), 280);
     tableStyle(tblMsgs);
-    lv_table_set_col_cnt(tblMsgs, 4);
-    const int w[4] = {60, 170, 560, 120};
-    for (int i = 0; i < 4; i++) lv_table_set_col_width(tblMsgs, i, w[i]);
+    lv_table_set_column_count(tblMsgs, 4);
+    const int w[4] = {60, 170, 470, 120};
+    for (int i = 0; i < 4; i++) lv_table_set_column_width(tblMsgs, i, w[i]);
     const char* h[4] = {"", "Station", "Text", "State"};
     for (int i = 0; i < 4; i++) lv_table_set_cell_value(tblMsgs, 0, i, h[i]);
     lv_obj_add_event_cb(tblMsgs, onTblMsgs, LV_EVENT_VALUE_CHANGED, nullptr);
 
     lv_obj_t* row = lv_obj_create(tabMsgs);
-    lv_obj_set_size(row, LV_PCT(100), 80);
+    lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(row, 12, 0);
     taTo = field(row, "To (EA7XXX-9)", 200, 9);
-    taText = field(row, "Message (max 67)", 460, 67);
+    taText = field(row, "Message (max 67)", 420, 67);
     button(row, "Send", onSend, nullptr, 120);
     lblSendRes = label(tabMsgs, "");
 }
@@ -220,7 +239,7 @@ static void buildSat() {
     lv_obj_set_flex_flow(tabSat, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(tabSat, 24, 0);
     lv_obj_t* left = lv_obj_create(tabSat);
-    lv_obj_set_size(left, 520, LV_PCT(100));
+    lv_obj_set_size(left, 460, LV_PCT(100));
     lv_obj_set_flex_flow(left, LV_FLEX_FLOW_COLUMN);
     lblSat = label(left, "SAT mode inactive", F_BIG);
     lblRot = label(left, "", F_BIG);
@@ -235,7 +254,7 @@ static void buildSat() {
     lv_arc_set_bg_angles(arcAz, 0, 360);
     lv_arc_set_rotation(arcAz, 270);
     lv_obj_remove_style(arcAz, nullptr, LV_PART_KNOB);
-    lv_obj_clear_flag(arcAz, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(arcAz, false);
     label(right, "Elevation");
     barEl = lv_bar_create(right);
     lv_obj_set_size(barEl, 260, 24);
@@ -252,8 +271,8 @@ static void buildPages() {
     tblPages = lv_table_create(tabPages);
     lv_obj_set_size(tblPages, LV_PCT(100), LV_PCT(100));
     tableStyle(tblPages);
-    lv_table_set_col_cnt(tblPages, 3);
-    lv_table_set_col_width(tblPages, 0, 110); lv_table_set_col_width(tblPages, 1, 100); lv_table_set_col_width(tblPages, 2, 640);
+    lv_table_set_column_count(tblPages, 3);
+    lv_table_set_column_width(tblPages, 0, 110); lv_table_set_column_width(tblPages, 1, 100); lv_table_set_column_width(tblPages, 2, 610);
     lv_table_set_cell_value(tblPages, 0, 0, "RIC"); lv_table_set_cell_value(tblPages, 0, 1, "RSSI"); lv_table_set_cell_value(tblPages, 0, 2, "Text");
 }
 
@@ -263,17 +282,19 @@ static void buildSet() {
     lblSetInfo = label(tabSet, "", F_BIG);
     label(tabSet, "Tracker control PIN (WebUI > Bluetooth > Control PIN, default 123456)");
     taPin = field(tabSet, "PIN", 220, 6, "0123456789");
-    char b[8]; snprintf(b, sizeof b, "%06lu", (unsigned long)trk::pin()); lv_textarea_set_text(taPin, b);
+    char b[12]; snprintf(b, sizeof b, "%06lu", (unsigned long)trk::pin()); lv_textarea_set_text(taPin, b);
     label(tabSet, "Tracker address (empty = first tracker heard)");
     taPeer = field(tabSet, "AA:BB:CC:DD:EE:FF", 320, 17);
     lv_textarea_set_text(taPeer, trk::peerAddress().c_str());
     lv_obj_t* row = lv_obj_create(tabSet);
-    lv_obj_set_size(row, LV_PCT(100), 80);
+    lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(row, 12, 0);
     button(row, "Save and reconnect", onSavePin, nullptr, 260);
     button(row, "Forget pairing", onForget, nullptr, 220);
     button(row, "Reconnect", onReconnect, nullptr, 180);
+    lblPinRes = label(tabSet, "");
+    lv_obj_set_style_text_color(lblPinRes, lv_palette_main(LV_PALETTE_RED), 0);
     label(tabSet, "Backlight");
     slBack = lv_slider_create(tabSet);
     lv_obj_set_width(slBack, 400);
@@ -288,18 +309,18 @@ static void showSplash(lv_obj_t* mainScr) {
     lv_obj_t* sp = lv_obj_create(nullptr);
     lv_obj_set_style_bg_color(sp, lv_color_hex(SPLASH_BG_RGB), 0);
     lv_obj_set_style_bg_opa(sp, LV_OPA_COVER, 0);
-    lv_obj_clear_flag(sp, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_t* img = lv_img_create(sp);
-    lv_img_set_src(img, &img_splash);
+    lv_obj_set_scrollable(sp, false);
+    lv_obj_t* img = lv_image_create(sp);
+    lv_image_set_src(img, &img_splash);
     lv_obj_align(img, LV_ALIGN_CENTER, 0, -18);
     lv_obj_t* ver = lv_label_create(sp);
     lv_label_set_text(ver, "Display " DISPLAY_VERSION);
     lv_obj_set_style_text_color(ver, lv_color_hex(0x28B5E1), 0);
     lv_obj_align_to(ver, img, LV_ALIGN_OUT_BOTTOM_MID, 0, 6);
-    lv_scr_load(sp);
+    lv_screen_load(sp);
     lv_obj_fade_in(img, 700, 0);
     lv_obj_fade_in(ver, 700, 300);
-    lv_scr_load_anim(mainScr, LV_SCR_LOAD_ANIM_FADE_ON, 500, 2200, true);
+    lv_screen_load_anim(mainScr, LV_SCREEN_LOAD_ANIM_FADE_IN, 500, 2200, true);
 }
 
 void begin(proto::Model* model) {
@@ -312,9 +333,9 @@ void begin(proto::Model* model) {
     lv_obj_set_pos(top, 0, 0);
     lv_obj_set_style_radius(top, 0, 0);
     lv_obj_set_style_pad_ver(top, 0, 0);
-    lv_obj_clear_flag(top, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_t* icon = lv_img_create(top);                      // icono de la app, como en las WebUI
-    lv_img_set_src(icon, &img_app_icon);
+    lv_obj_set_scrollable(top, false);
+    lv_obj_t* icon = lv_image_create(top);                      // icono de la app, como en las WebUI
+    lv_image_set_src(icon, &img_app_icon);
     lv_obj_align(icon, LV_ALIGN_LEFT_MID, -6, 0);
     lv_obj_t* title = label(top, "APRS LoRa+ Display " DISPLAY_VERSION, F_BIG);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 44, 0);
@@ -323,7 +344,9 @@ void begin(proto::Model* model) {
     topInfo = label(top, "", nullptr);
     lv_obj_align(topInfo, LV_ALIGN_CENTER, 90, 0);
 
-    tabs = lv_tabview_create(scr, LV_DIR_LEFT, 150);
+    tabs = lv_tabview_create(scr);
+    lv_tabview_set_tab_bar_position(tabs, LV_DIR_LEFT);
+    lv_tabview_set_tab_bar_size(tabs, 150);
     lv_obj_set_size(tabs, board::W, board::H - 48);
     lv_obj_set_pos(tabs, 0, 48);
     tabDash = lv_tabview_add_tab(tabs, "Status");
@@ -339,7 +362,7 @@ void begin(proto::Model* model) {
     kb = lv_keyboard_create(lv_layer_top());
     lv_obj_set_size(kb, board::W, 250);
     lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(kb, true);
 
     buildDash(); buildHeard(); buildMsgs(); buildSens(); buildSat(); buildMirror(); buildPages(); buildSet();
     showSplash(scr);
@@ -355,11 +378,11 @@ void update() {
     char b[512];
     trk::State s = trk::state();
     snprintf(b, sizeof b, "%s%s%s", trk::stateText(), s == trk::State::Linked ? ": " : "", s == trk::State::Linked ? trk::peerName().c_str() : "");
-    lv_label_set_text(topLink, b);
+    setText(topLink, b);
     lv_obj_set_style_text_color(topLink, s == trk::State::Linked ? lv_palette_main(LV_PALETTE_GREEN) : lv_palette_main(LV_PALETTE_ORANGE), 0);
     char setb[256];
     snprintf(setb, sizeof setb, "BLE link: %s\nTracker: %s  fw %s", trk::stateText(), M->info.ok ? M->info.board.c_str() : "-", M->info.ok ? M->info.fw.c_str() : "-");
-    lv_label_set_text(lblSetInfo, setb);
+    setText(lblSetInfo, setb);
     if (M->revision == drawnRev) return;
     drawnRev = M->revision;
 
@@ -376,7 +399,7 @@ void update() {
         snprintf(b, sizeof b, "Mode %d  profile %d  LoRa %d  %s%s%s   up %lu min", M->status.mode, M->status.profile, M->status.lora,
                  M->status.smart ? "SmartBeacon " : "", M->status.digi ? "digi " : "", M->status.sos ? "SOS" : "", (unsigned long)(M->status.up / 60));
         lv_label_set_text(dashStatus, b);
-        if (M->status.digi) lv_obj_add_state(swDigi, LV_STATE_CHECKED); else lv_obj_clear_state(swDigi, LV_STATE_CHECKED);
+        if (M->status.digi) lv_obj_add_state(swDigi, LV_STATE_CHECKED); else lv_obj_remove_state(swDigi, LV_STATE_CHECKED);
     }
     lv_label_set_text(dashErr, M->lastError.c_str());
     if (M->info.ok) {
@@ -387,11 +410,19 @@ void update() {
             opts += M->info.modeNames[i];
             if (M->info.modeIds[i] == M->info.mode) sel = (int)i;
         }
-        if (!opts.empty()) { lv_dropdown_set_options(ddMode, opts.c_str()); lv_dropdown_set_selected(ddMode, sel); }
+        // solo al cambiar la lista o el modo del tracker: si no, cada evento borraria lo que el usuario acaba de elegir
+        static std::string shownOpts;
+        static int shownMode = -1;
+        if (!opts.empty() && (opts != shownOpts || M->info.mode != shownMode)) {
+            lv_dropdown_set_options(ddMode, opts.c_str());
+            lv_dropdown_set_selected(ddMode, sel);
+            shownOpts = opts;
+            shownMode = M->info.mode;
+        }
     }
 
     // Oidas
-    lv_table_set_row_cnt(tblHeard, M->heard.size() + 1);
+    lv_table_set_row_count(tblHeard, M->heard.size() + 1);
     for (size_t i = 0; i < M->heard.size(); i++) {
         const proto::Heard& h = M->heard[i];
         char d[16] = "-", r[16], sn[16], a[16];
@@ -407,7 +438,7 @@ void update() {
     }
 
     // Mensajes
-    lv_table_set_row_cnt(tblMsgs, M->msgs.size() + 1);
+    lv_table_set_row_count(tblMsgs, M->msgs.size() + 1);
     for (size_t i = 0; i < M->msgs.size(); i++) {
         const proto::Msg& g = M->msgs[i];
         lv_table_set_cell_value(tblMsgs, i + 1, 0, g.dir == 'T' ? ">" : "<");
@@ -490,7 +521,7 @@ void update() {
     }
 
     // DAPNET
-    lv_table_set_row_cnt(tblPages, M->pages.size() + 1);
+    lv_table_set_row_count(tblPages, M->pages.size() + 1);
     for (size_t i = 0; i < M->pages.size(); i++) {
         char r[16], q[16];
         snprintf(r, sizeof r, "%lu", (unsigned long)M->pages[i].ric); snprintf(q, sizeof q, "%d", M->pages[i].rssi);
@@ -500,8 +531,8 @@ void update() {
     }
 }
 
-bool mirrorVisible() { return tabs && lv_tabview_get_tab_act(tabs) == 5; }
-bool heardVisible() { return tabs && lv_tabview_get_tab_act(tabs) == 1; }
-bool messagesVisible() { return tabs && lv_tabview_get_tab_act(tabs) == 2; }
+bool mirrorVisible() { return tabs && lv_tabview_get_tab_active(tabs) == 5; }
+bool heardVisible() { return tabs && lv_tabview_get_tab_active(tabs) == 1; }
+bool messagesVisible() { return tabs && lv_tabview_get_tab_active(tabs) == 2; }
 
 } // namespace ui

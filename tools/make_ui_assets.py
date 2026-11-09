@@ -2,11 +2,12 @@
 # Copyright (C) 2026 Manuel - EA7JRS
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Imagenes de la interfaz (LVGL 8.4, LV_COLOR_DEPTH 16) en src/ui_assets.cpp:
+# Imagenes de la interfaz (LVGL 9.6) en src/ui_assets.cpp:
 #  - img_app_icon: icono de la app Android APRS LoRa+ (tools/assets/app_icon.png, el de primer plano del icono adaptativo sobre
-#    #1C252E) con esquinas redondeadas, para la barra superior. LV_IMG_CF_TRUE_COLOR_ALPHA.
+#    #1C252E) con esquinas redondeadas, para la barra superior. LV_COLOR_FORMAT_ARGB8888 (el ARGB8565 no lo pinta el
+#    renderizador por software de LVGL 9).
 #  - img_splash: pantalla de bienvenida de la app (tools/assets/welcome_logo.jpg, copia de app/src/main/res/drawable/welcome_logo.jpg
-#    de APRS-LoRa-Plus-Android) con los bordes fundidos con #131A22, en 256 colores (LV_IMG_CF_INDEXED_8BIT).
+#    de APRS-LoRa-Plus-Android) con los bordes fundidos con #131A22, en 256 colores (LV_COLOR_FORMAT_I8).
 #
 #   python3 tools/make_ui_assets.py
 import argparse
@@ -14,10 +15,6 @@ import argparse
 from PIL import Image, ImageDraw
 
 SPLASH_BG = (0x13, 0x1A, 0x22)
-
-
-def rgb565(r, g, b):
-    return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
 
 
 def feather(img, bg, frac=0.16):
@@ -50,8 +47,7 @@ def icon(src, size):
     for y in range(size):
         for x in range(size):
             r, g, b, a = im.getpixel((x, y))
-            v = rgb565(r, g, b)
-            data += bytes((v & 0xFF, v >> 8, a))          # LV_COLOR_16_SWAP 0: byte bajo, alto, alfa
+            data += bytes((b, g, r, a))                       # ARGB8888 en memoria: azul, verde, rojo, alfa
     return size, size, data
 
 
@@ -94,8 +90,9 @@ def main():
     out += carray("splash_data", sdata)
     out += [
         "",
-        "const lv_img_dsc_t img_app_icon = { { LV_IMG_CF_TRUE_COLOR_ALPHA, 0, 0, %d, %d }, sizeof(icon_data), icon_data };" % (iw, ih),
-        "const lv_img_dsc_t img_splash = { { LV_IMG_CF_INDEXED_8BIT, 0, 0, %d, %d }, sizeof(splash_data), splash_data };" % (sw, sh),
+        "// cabecera: magia, formato, flags, ancho, alto, bytes por fila",
+        "const lv_image_dsc_t img_app_icon = { { LV_IMAGE_HEADER_MAGIC, LV_COLOR_FORMAT_ARGB8888, 0, %d, %d, %d, 0 }, sizeof(icon_data), icon_data, nullptr, nullptr };" % (iw, ih, iw * 4),
+        "const lv_image_dsc_t img_splash = { { LV_IMAGE_HEADER_MAGIC, LV_COLOR_FORMAT_I8, 0, %d, %d, %d, 0 }, sizeof(splash_data), splash_data, nullptr, nullptr };" % (sw, sh, sw),
         "const uint32_t SPLASH_BG_RGB = 0x%02X%02X%02X;" % SPLASH_BG,
         "",
     ]

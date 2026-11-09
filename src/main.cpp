@@ -6,24 +6,22 @@
  */
 #include <Arduino.h>
 #include <cstring>
+#include <esp_heap_caps.h>
 #include <lvgl.h>
-#include <esp_timer.h>
 #include "board_lcd7b.h"
 #include "protocol.h"
 #include "tracker_link.h"
 #include "ui.h"
 
 static proto::Model model;
-static lv_disp_draw_buf_t drawBuf;
-static lv_disp_drv_t dispDrv;
-static lv_indev_drv_t indevDrv;
 
-static void flush(lv_disp_drv_t* d, const lv_area_t* a, lv_color_t* px) {
+// LVGL 9: el buffer es RGB565 (LV_COLOR_DEPTH 16, sin intercambio de bytes), igual que el panel
+static void flush(lv_display_t* d, const lv_area_t* a, uint8_t* px) {
     board::draw(a->x1, a->y1, a->x2, a->y2, px);
-    lv_disp_flush_ready(d);
+    lv_display_flush_ready(d);
 }
 
-static void readTouch(lv_indev_drv_t*, lv_indev_data_t* data) {
+static void readTouch(lv_indev_t*, lv_indev_data_t* data) {
     static int lx = 0, ly = 0;
     static bool pressed = false;
     int x, y;
@@ -31,10 +29,10 @@ static void readTouch(lv_indev_drv_t*, lv_indev_data_t* data) {
     if (r == 1) { lx = x; ly = y; pressed = true; }
     else if (r == 0) pressed = false;
     data->point.x = lx; data->point.y = ly;
-    data->state = pressed ? LV_INDEV_STATE_PR : LV_INDEV_STATE_REL;
+    data->state = pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
 }
 
-static void tick(void*) { lv_tick_inc(2); }
+static uint32_t tickMs() { return millis(); }
 
 void setup() {
     Serial.begin(115200);
@@ -42,25 +40,21 @@ void setup() {
     bool ok = board::begin();
 
     lv_init();
-    const size_t px = board::W * 60;
-    lv_color_t* b1 = (lv_color_t*)heap_caps_malloc(px * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
-    lv_color_t* b2 = (lv_color_t*)heap_caps_malloc(px * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
-    lv_disp_draw_buf_init(&drawBuf, b1, b2, px);
-    lv_disp_drv_init(&dispDrv);
-    dispDrv.hor_res = board::W;
-    dispDrv.ver_res = board::H;
-    dispDrv.flush_cb = flush;
-    dispDrv.draw_buf = &drawBuf;
-    lv_disp_drv_register(&dispDrv);
-    lv_indev_drv_init(&indevDrv);
-    indevDrv.type = LV_INDEV_TYPE_POINTER;
-    indevDrv.read_cb = readTouch;
-    lv_indev_drv_register(&indevDrv);
+    lv_tick_set_cb(tickMs);
 
-    const esp_timer_create_args_t ta = {.callback = tick, .arg = nullptr, .dispatch_method = ESP_TIMER_TASK, .name = "lvtick", .skip_unhandled_events = true};
-    esp_timer_handle_t th;
-    esp_timer_create(&ta, &th);
-    esp_timer_start_periodic(th, 2000);
+    // Dos buffers parciales de 60 lineas en PSRAM (LVGL dibuja en uno mientras el otro se copia al panel)
+    const uint32_t bytes = board::W * 60 * 2;
+    void* b1 = heap_caps_aligned_alloc(64, bytes, MALLOC_CAP_SPIRAM);
+    void* b2 = heap_caps_aligned_alloc(64, bytes, MALLOC_CAP_SPIRAM);
+    if (!b1 || !b2) Serial.println("[main] sin PSRAM para los buffers de LVGL");
+    lv_display_t* disp = lv_display_create(board::W, board::H);
+    lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565);
+    lv_display_set_flush_cb(disp, flush);
+    lv_display_set_buffers(disp, b1, b2, bytes, LV_DISPLAY_RENDER_MODE_PARTIAL);
+
+    lv_indev_t* indev = lv_indev_create();
+    lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_read_cb(indev, readTouch);
 
     trk::begin();
     ui::begin(&model);
