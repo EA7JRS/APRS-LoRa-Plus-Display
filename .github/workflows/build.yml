@@ -11,10 +11,8 @@ permissions:
 jobs:
     build:
         runs-on: ubuntu-latest
-        strategy:
-            fail-fast: false
-            matrix:
-                env: [waveshare_lcd7b, waveshare_lcd35, waveshare_lcd28b, waveshare_lcd169]
+        env:
+            BOARDS: waveshare_lcd7b waveshare_lcd35 waveshare_lcd28b waveshare_lcd169
         steps:
             - uses: actions/checkout@v4
 
@@ -35,13 +33,16 @@ jobs:
                   restore-keys: pio3-
 
             # Las descargas de GitHub Releases dan 504 de vez en cuando: reintentar.
-            - name: Compilar
+            - name: Compilar las cuatro placas
               run: |
-                  for i in 1 2 3 4 5; do
-                      pio run -e ${{ matrix.env }} && exit 0
-                      echo "Intento $i fallido, reintentando en 30 s"; sleep 30
+                  for e in $BOARDS; do
+                      ok=0
+                      for i in 1 2 3 4 5; do
+                          pio run -e $e && { ok=1; break; }
+                          echo "$e: intento $i fallido, reintentando en 30 s"; sleep 30
+                      done
+                      [ $ok = 1 ] || { echo "::error::$e no compila"; exit 1; }
                   done
-                  exit 1
 
             - uses: actions/cache/save@v4
               if: success() && steps.cache.outputs.cache-hit != 'true'
@@ -52,7 +53,6 @@ jobs:
                   key: pio3-${{ hashFiles('platformio.ini') }}
 
             - name: Pruebas del protocolo (PC)
-              if: matrix.env == 'waveshare_lcd7b'
               run: |
                   AJ=$(find .pio/libdeps -type d -path '*ArduinoJson/src' | head -1)
                   g++ -std=c++17 -Wall -Wextra -Werror -I src -I "$AJ" test/test_protocol.cpp src/protocol.cpp -o /tmp/test_protocol
@@ -60,13 +60,15 @@ jobs:
 
             - name: Tamano
               run: |
-                  ls -l .pio/build/${{ matrix.env }}/firmware.bin
-                  pio run -e ${{ matrix.env }} -t size | tail -8
+                  for e in $BOARDS; do
+                      echo "== $e"; ls -l .pio/build/$e/firmware.bin
+                      pio run -e $e -t size | grep -E "RAM:|Flash:"
+                  done
 
             - uses: actions/upload-artifact@v4
               with:
-                  name: aprs-lora-plus-display-${{ matrix.env }}
+                  name: aprs-lora-plus-display-firmware
                   path: |
-                      .pio/build/${{ matrix.env }}/firmware.bin
-                      .pio/build/${{ matrix.env }}/bootloader.bin
-                      .pio/build/${{ matrix.env }}/partitions.bin
+                      .pio/build/*/firmware.bin
+                      .pio/build/*/bootloader.bin
+                      .pio/build/*/partitions.bin
