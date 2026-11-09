@@ -18,6 +18,12 @@ int main() {
     CHECK(m.sensors.temp > 21.3f && m.sensors.temp < 21.5f && m.sensors.battPct == 88 && m.sensors.qnh < 0);
     CHECK(proto::applyEvent(m, R"J({"e":"sensors","temp":22.0})J"));
     CHECK(m.sensors.press > 1013.0f);   // lo que no llega se conserva
+    CHECK(!m.sensors.net.ok);
+    CHECK(proto::applyEvent(m, R"J({"e":"sensors","qnh":1016.0,"qs":"net","net":{"src":"OWM","pl":"Sevilla","t":24.1,"p":1016.0,"ws":5.1,"wg":9.3,"wd":250,"aq":2,"age":420}})J"));
+    CHECK(m.sensors.qnhSrc == "net" && m.sensors.net.ok && m.sensors.net.src == "OWM" && m.sensors.net.place == "Sevilla");
+    CHECK(m.sensors.net.wg > 9.2f && m.sensors.net.wd == 250 && m.sensors.net.aqiOwm == 2 && m.sensors.net.aqiUs == -1 && m.sensors.net.age == 420 && m.sensors.net.h < 0);
+    CHECK(proto::applyEvent(m, R"J({"e":"sensors","temp":22.0})J"));
+    CHECK(!m.sensors.net.ok && m.sensors.qnhSrc == "net");   // sin "net": caducado en el tracker
     CHECK(proto::applyEvent(m, R"J({"e":"gnss","fix":true,"lat":37.191512,"lon":-3.936701,"alt":512.0,"spd":0.0,"crs":0.0,"sats":11,"hdop":0.8,"utc":"2026-11-05T07:45:00Z"})J"));
     CHECK(m.gnss.fix && m.gnss.sats == 11 && m.gnss.lon < -3.9 && m.gnss.utc == "2026-11-05T07:45:00Z");
     CHECK(proto::applyEvent(m, R"J({"e":"heard","tot":2,"pkts":9,"items":[{"c":"EA7ABC-9","sym":"/>","lat":37.1,"lon":-3.6,"rssi":-97,"snr":6.5,"age":42,"n":3,"cmt":"hola"},{"c":"EB7XYZ","sym":"/-","rssi":-110,"age":900,"n":1}]})J"));

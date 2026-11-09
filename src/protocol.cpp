@@ -36,6 +36,18 @@ bool applyEvent(Model& m, const char* text) {
         s.batt = d["batt"] | s.batt; s.temp = d["temp"] | s.temp; s.hum = d["hum"] | s.hum; s.press = d["press"] | s.press;
         s.qnh = d["qnh"] | s.qnh; s.baroAlt = d["baroAlt"] | s.baroAlt; s.heading = d["heading"] | s.heading;
         s.battPct = d["battPct"] | s.battPct;
+        s.qnhSrc = S(d["qs"], s.qnhSrc.c_str());
+        NetWx n;                                        // sin "net": no hay tiempo de internet (o ha caducado en el tracker)
+        JsonObjectConst o = d["net"];
+        if (!o.isNull()) {
+            n.ok = true;
+            n.src = S(o["src"]); n.place = S(o["pl"]); n.desc = S(o["ds"]); n.pollutant = S(o["mp"]);
+            n.t = o["t"] | n.t; n.h = o["h"] | n.h; n.p = o["p"] | n.p; n.ws = o["ws"] | n.ws; n.wg = o["wg"] | n.wg;
+            n.rain = o["r"] | n.rain; n.pm25 = o["pm25"] | n.pm25; n.pm10 = o["pm10"] | n.pm10;
+            n.wd = o["wd"] | n.wd; n.clouds = o["cl"] | n.clouds; n.aqiOwm = o["aq"] | 0; n.aqiUs = o["aqus"] | -1;
+            n.age = o["age"] | 0u;
+        }
+        s.net = n;
     } else if (!strcmp(e, "gnss")) {
         Gnss& g = m.gnss;
         g.ok = true; g.fix = d["fix"] | false; g.lat = d["lat"] | g.lat; g.lon = d["lon"] | g.lon; g.alt = d["alt"] | g.alt;

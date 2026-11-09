@@ -429,9 +429,39 @@ void update() {
             if (s.temp > -900) add("Temperature", s.temp, "C", "%.1f");
             if (s.hum >= 0) add("Humidity", s.hum, "%", "%.0f");
             if (s.press > 0) add("Pressure", s.press, "hPa", "%.1f");
-            if (s.qnh > 0) add("QNH", s.qnh, "hPa", "%.1f");
+            if (s.qnh > 0) add(s.qnhSrc == "net" ? "QNH (internet)" : s.qnhSrc == "man" ? "QNH (manual)" : "QNH", s.qnh, "hPa", "%.1f");
             if (s.baroAlt > -900) add("Baro altitude", s.baroAlt, "m", "%.0f");
             if (s.heading >= 0) add("Heading", s.heading, "deg", "%.0f");
+            // Tiempo de internet (la app lo baja de OpenWeatherMap / IQAir y lo manda al tracker): nunca es un sensor del tracker
+            const proto::NetWx& n = s.net;
+            if (n.ok) {
+                char h[96];
+                snprintf(h, sizeof h, "\nInternet weather (%s%s%s, %u min ago)\n", n.src.c_str(), n.place.empty() ? "" : " - ",
+                         n.place.c_str(), (unsigned)(n.age / 60));
+                t += h;
+                if (!n.desc.empty()) t += n.desc + "\n";
+                if (n.t > -900) add("Temperature", n.t, "C", "%.1f");
+                if (n.h >= 0) add("Humidity", n.h, "%", "%.0f");
+                if (n.p > 0) add("Pressure (sea level)", n.p, "hPa", "%.1f");
+                if (n.ws >= 0) {
+                    char w[64];
+                    snprintf(w, sizeof w, "Wind: %.1f m/s", n.ws);
+                    t += w;
+                    if (n.wg >= 0) { snprintf(w, sizeof w, ", gusts %.1f", n.wg); t += w; }
+                    if (n.wd >= 0) { snprintf(w, sizeof w, " from %d deg", n.wd); t += w; }
+                    t += "\n";
+                }
+                if (n.rain >= 0) add("Rain", n.rain, "mm/h", "%.1f");
+                if (n.clouds >= 0) { char c[32]; snprintf(c, sizeof c, "Clouds: %d %%\n", n.clouds); t += c; }
+                if (n.aqiUs >= 0) {
+                    char a[64]; snprintf(a, sizeof a, "Air quality: US AQI %d%s%s\n", n.aqiUs, n.pollutant.empty() ? "" : " ", n.pollutant.c_str()); t += a;
+                } else if (n.aqiOwm > 0) {
+                    static const char* names[] = {"", "good", "fair", "moderate", "poor", "very poor"};
+                    char a[48]; snprintf(a, sizeof a, "Air quality: %d/5 %s\n", n.aqiOwm, names[n.aqiOwm > 5 ? 5 : n.aqiOwm]); t += a;
+                }
+                if (n.pm25 >= 0) add("PM2.5", n.pm25, "ug/m3", "%.1f");
+                if (n.pm10 >= 0) add("PM10", n.pm10, "ug/m3", "%.1f");
+            }
         }
         lv_label_set_text(lblSens, t.empty() ? "No sensor data yet" : t.c_str());
     }

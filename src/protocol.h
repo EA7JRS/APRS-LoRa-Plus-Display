@@ -21,10 +21,20 @@ struct Info {
 
 struct Status { bool ok = false; int mode = 0, profile = 0, lora = 0; bool digi = false, smart = false, sos = false; float batt = -1; uint32_t up = 0; };
 
+// Tiempo de internet que la app manda al tracker (OpenWeatherMap / IQAir); llega dentro del evento sensors ("net")
+struct NetWx {
+    bool ok = false;
+    std::string src, place, desc, pollutant;
+    float t = -999, h = -1, p = -1, ws = -1, wg = -1, rain = -1, pm25 = -1, pm10 = -1;
+    int wd = -1, clouds = -1, aqiOwm = 0, aqiUs = -1;
+    uint32_t age = 0;
+};
 struct Sensors {
     bool ok = false;
     float batt = -1, temp = -999, hum = -1, press = -1, qnh = -1, baroAlt = -999, heading = -1;
     int battPct = -1;
+    std::string qnhSrc;                 // "gps", "man", "net"
+    NetWx net;
 };
 
 struct Gnss { bool ok = false, fix = false; double lat = 0, lon = 0; float alt = 0, spd = 0, crs = 0, hdop = 0; int sats = 0; std::string utc; };
