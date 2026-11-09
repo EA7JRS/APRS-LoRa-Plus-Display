@@ -1,7 +1,7 @@
 # APRS LoRa+ Display - Copyright (C) 2026 Manuel - EA7JRS - GPL-3.0-or-later
 # Release: compila todas las placas, adjunta display-<placa>.zip de cada una y web-site-display.zip (instalador web).
 # El instalador web es el del tracker (EA7JRS/APRS-LoRa-Plus, GitHub Pages): al publicar la release del tracker con la MISMA
-# version, su workflow descarga web-site-display.zip de aqui y lo pone en display/. Etiqueta = v + DISPLAY_VERSION (p. ej. v5.3.5).
+# version, su workflow descarga web-site-display.zip de aqui y lo pone en display/. Etiqueta = v + DISPLAY_VERSION (p. ej. v5.3.6).
 name: Release
 
 on:
@@ -10,7 +10,7 @@ on:
     workflow_dispatch:
         inputs:
             tag:
-                description: "Release ya creada a la que adjuntar los ficheros (p. ej. v5.3.5)"
+                description: "Release ya creada a la que adjuntar los ficheros (p. ej. v5.3.6)"
                 required: true
 
 permissions:
