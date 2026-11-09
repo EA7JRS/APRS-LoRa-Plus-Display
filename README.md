@@ -9,7 +9,7 @@ Pantalla táctil para el tracker **APRS LoRa+** ([EA7JRS/APRS-LoRa-Plus](https:/
 | ESP32-S3-Touch-LCD-2.8B | 2,8", 480×640 (vertical) | `waveshare_lcd28b` |
 | ESP32-S3-Touch-LCD-1.69 | 1,69", 240×280 | `waveshare_lcd169` |
 
-La interfaz tiene el aspecto de la pantalla del rotor (paleta oscura, cabecera roja, tarjetas, brújula, DejaVu Sans), es la misma en todas y se adapta al tamaño (en las pequeñas las pestañas son iconos y las tablas tienen menos columnas). Pines y lo que falta por verificar de cada placa: `docs/HARDWARE.md`.
+La interfaz tiene el formato de la pantalla del rotor (tarjetas, listas clave / valor, brújula, DejaVu Sans) con la paleta de la app Android o la del rotor (Settings > Theme), es la misma en todas y se adapta al tamaño (en las pequeñas las pestañas son iconos y las tablas tienen menos columnas). Pines y lo que falta por verificar de cada placa: `docs/HARDWARE.md`.
 
 No es un tracker: no lleva radio LoRa ni GPS. Solo muestra los datos del tracker y lo controla.
 

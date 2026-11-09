@@ -2,8 +2,9 @@
  * Copyright (C) 2026 Manuel - EA7JRS
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Interfaz LVGL 9.6 tactil con el aspecto de la pantalla del rotor (APRS-LoRa-Plus-Rotor, lcd_ui.h): fondo oscuro, tarjetas,
- * cabecera roja con "APRS LoRa+" y la version, listas clave / valor, brujula con AZ y EL grandes, letra DejaVu Sans.
+ * Interfaz LVGL 9.6 tactil: tarjetas, listas clave / valor, brujula con AZ y EL grandes y letra DejaVu Sans, como la pantalla
+ * del rotor (APRS-LoRa-Plus-Rotor, lcd_ui.h). Dos paletas a elegir en Settings: la de la app Android (Theme.kt, por defecto)
+ * y la del rotor (cabecera roja).
  * Se adapta a la pantalla de la placa: grande (1024x600), media (480x320 en horizontal o 480x640 en vertical) y
  * pequena (240x280). Textos en ingles; las fuentes llevan Latin-1 (src/fonts, tools/make_fonts.sh).
  */
@@ -12,7 +13,9 @@
 #include "tracker_link.h"
 #include "ui_assets.h"
 #include <lvgl.h>
+#include <cctype>
 #include <cmath>
+#include <string>
 #include <cstdio>
 #include <cstdarg>
 #include <cstdlib>
@@ -34,13 +37,30 @@ LV_FONT_DECLARE(dejavu_num_60)
 
 namespace ui {
 
-// ---------- colores: los de la pantalla y la WebUI del rotor ----------
-namespace col {
-constexpr uint32_t BG = 0x10151c, CARD = 0x19212b, FG = 0xe6edf3, MUT = 0x8b98a5, ACC = 0x4aa3ff;
-constexpr uint32_t RED = 0xff5d5d, HDR = 0xb21d1d, HDR_LINE = 0x7a1414, SUB = 0xf0d0d0, OFF = 0xe6a0a0;
-constexpr uint32_t BTN = 0x263241, BTN_ON = 0x4aa3ff, LINE = 0x33475c, GREEN = 0x3fb950, YEL = 0xffd23f;
-constexpr uint32_t ORANGE = 0xd29922, SEL = 0x14324a, FIELD = 0x0d1218, DIS = 0x4a5868, LOGO = 0x28b5e1;
-}
+// ---------- paletas: la de la app Android (Theme.kt, colores del logo) y la de la pantalla del rotor (lcd_ui.h) ----------
+struct Pal {
+    uint32_t bg, card, cardBorder, fg, mut, acc, red, green, yel, line, field, logo, needle;
+    uint32_t hdr, hdrLine, hdrTitle, sub, on, off;                 // cabecera: fondo, raya, titulo, version, enlazado / no
+    uint32_t btn, btnBorder, btnText, btnOn, btnAcc, btnAccText;    // botones (pulsado, principal)
+    uint32_t sel, selText;                                          // pestana elegida
+    bool capsTitles;                                                // titulos de tarjeta en mayusculas espaciadas (app)
+};
+static const Pal PAL_APP = {   // fondo gris azulado, verde neon y cian del logo; ambar para lo elegido
+    0x131A22, 0x18222D, 0x263443, 0xE8EEF3, 0x9FB0BF, 0x28B5E1, 0xFF6B6B, 0x3CE68A, 0xFFB347, 0x263443, 0x0B1016, 0x28B5E1, 0xFF6B6B,
+    0x131A22, 0x263443, 0xE8EEF3, 0x28B5E1, 0x3CE68A, 0xFFB347,
+    0x1E2A36, 0x2E3E4F, 0xE8EEF3, 0x2E3E4F, 0x28B5E1, 0x131A22,
+    0x1E2A36, 0xFFB347,
+    true};
+static const Pal PAL_ROTOR = { // fondo oscuro, tarjetas, azul; cabecera roja
+    0x10151c, 0x19212b, 0x19212b, 0xe6edf3, 0x8b98a5, 0x4aa3ff, 0xff5d5d, 0x3fb950, 0xffd23f, 0x33475c, 0x0d1218, 0x28b5e1, 0xff5d5d,
+    0xb21d1d, 0x7a1414, 0xffffff, 0xf0d0d0, 0xffffff, 0xe6a0a0,
+    0x263241, 0x263241, 0xffffff, 0x4aa3ff, 0x2f6fb0, 0xffffff,
+    0x14324a, 0x4aa3ff,
+    false};
+static const Pal* P = &PAL_APP;
+static int themeIdx = 0;
+static void (*themeCb)(int) = nullptr;
+
 static lv_color_t C(uint32_t v) { return lv_color_hex(v); }
 
 // ---------- disposicion segun el tamano de la pantalla ----------
@@ -61,7 +81,7 @@ static Layout makeLayout(int w, int h) {
     const bool portrait = h > w;
     if (w >= 800)
         l = {Size::L, false, &dejavu_20, &dejavu_16, &dejavu_bold_28, &dejavu_20, &dejavu_bold_24, &dejavu_num_60, &lv_font_unscii_16, &dejavu_20, &dejavu_bold_20,
-             64, 150, LV_DIR_LEFT, false, 220, 56, 320, 250, 40, 380, 14, 6, 10, 190};
+             64, 150, LV_DIR_LEFT, false, 220, 56, 250, 250, 40, 380, 14, 6, 10, 190};
     else if (w >= 400 && portrait)        // 480 x 640: pestanas con iconos abajo
         l = {Size::M, true, &dejavu_16, &dejavu_14, &dejavu_bold_20, &dejavu_14, &dejavu_bold_20, &dejavu_num_44, &lv_font_unscii_16, &dejavu_20, &dejavu_bold_16,
              46, 52, LV_DIR_BOTTOM, true, 150, 46, 200, h * 2 / 5, 30, 300, 10, 4, 8, 130};
@@ -102,46 +122,50 @@ static lv_style_t stCard, stBtn, stBtnPr, stBtnAcc, stField, stTable, stTableIte
 
 static void initStyles() {
     lv_style_init(&stCard);
-    lv_style_set_bg_color(&stCard, C(col::CARD));
+    lv_style_set_bg_color(&stCard, C(P->card));
     lv_style_set_bg_opa(&stCard, LV_OPA_COVER);
-    lv_style_set_border_width(&stCard, 0);
+    lv_style_set_border_color(&stCard, C(P->cardBorder));
+    lv_style_set_border_width(&stCard, 1);
     lv_style_set_radius(&stCard, L.radius);
     lv_style_set_pad_all(&stCard, L.pad);
     lv_style_set_pad_gap(&stCard, L.pad);
-    lv_style_set_text_color(&stCard, C(col::FG));
+    lv_style_set_text_color(&stCard, C(P->fg));
 
     lv_style_init(&stBtn);
-    lv_style_set_bg_color(&stBtn, C(col::BTN));
+    lv_style_set_bg_color(&stBtn, C(P->btn));
     lv_style_set_bg_opa(&stBtn, LV_OPA_COVER);
     lv_style_set_radius(&stBtn, L.radius);
     lv_style_set_shadow_width(&stBtn, 0);
-    lv_style_set_border_width(&stBtn, 0);
-    lv_style_set_text_color(&stBtn, lv_color_white());
+    lv_style_set_border_width(&stBtn, 1);
+    lv_style_set_border_color(&stBtn, C(P->btnBorder));
+    lv_style_set_text_color(&stBtn, C(P->btnText));
     lv_style_set_text_font(&stBtn, L.fBtn);
     lv_style_init(&stBtnPr);
-    lv_style_set_bg_color(&stBtnPr, C(col::BTN_ON));
+    lv_style_set_bg_color(&stBtnPr, C(P->btnOn));
     lv_style_init(&stBtnAcc);                                   // boton principal (enviar, cambiar modo)
-    lv_style_set_bg_color(&stBtnAcc, C(0x2f6fb0));
+    lv_style_set_bg_color(&stBtnAcc, C(P->btnAcc));
+    lv_style_set_border_color(&stBtnAcc, C(P->btnAcc));
+    lv_style_set_text_color(&stBtnAcc, C(P->btnAccText));
 
     lv_style_init(&stField);
-    lv_style_set_bg_color(&stField, C(col::FIELD));
+    lv_style_set_bg_color(&stField, C(P->field));
     lv_style_set_bg_opa(&stField, LV_OPA_COVER);
-    lv_style_set_border_color(&stField, C(col::LINE));
+    lv_style_set_border_color(&stField, C(P->line));
     lv_style_set_border_width(&stField, 1);
     lv_style_set_radius(&stField, L.radius);
-    lv_style_set_text_color(&stField, C(col::FG));
+    lv_style_set_text_color(&stField, C(P->fg));
 
     lv_style_init(&stTable);
-    lv_style_set_bg_color(&stTable, C(col::CARD));
+    lv_style_set_bg_color(&stTable, C(P->card));
     lv_style_set_bg_opa(&stTable, LV_OPA_COVER);
     lv_style_set_border_width(&stTable, 0);
     lv_style_set_radius(&stTable, L.radius);
     lv_style_set_pad_all(&stTable, L.sz == Size::L ? 6 : 2);
     lv_style_init(&stTableItems);
     lv_style_set_bg_opa(&stTableItems, LV_OPA_TRANSP);
-    lv_style_set_text_color(&stTableItems, C(col::FG));
+    lv_style_set_text_color(&stTableItems, C(P->fg));
     lv_style_set_text_font(&stTableItems, L.fTable);
-    lv_style_set_border_color(&stTableItems, C(col::LINE));
+    lv_style_set_border_color(&stTableItems, C(P->line));
     lv_style_set_border_width(&stTableItems, 1);
     lv_style_set_border_side(&stTableItems, LV_BORDER_SIDE_BOTTOM);
     lv_style_set_pad_top(&stTableItems, L.cellPad);
@@ -150,19 +174,20 @@ static void initStyles() {
     lv_style_set_pad_right(&stTableItems, L.cellPad + 2);
 
     lv_style_init(&stKey);
-    lv_style_set_text_color(&stKey, C(col::MUT));
+    lv_style_set_text_color(&stKey, C(P->mut));
     lv_style_init(&stVal);
-    lv_style_set_text_color(&stVal, C(col::FG));
+    lv_style_set_text_color(&stVal, C(P->fg));
     lv_style_init(&stTitle);                                    // titulo de tarjeta ("Acerca de" en el rotor)
-    lv_style_set_text_color(&stTitle, C(col::MUT));
+    lv_style_set_text_color(&stTitle, C(P->mut));
     lv_style_set_text_font(&stTitle, L.fBold);
 
     lv_style_init(&stTabBtn);
-    lv_style_set_text_color(&stTabBtn, C(col::MUT));
+    lv_style_set_text_color(&stTabBtn, C(P->mut));
     lv_style_set_bg_opa(&stTabBtn, LV_OPA_TRANSP);
     lv_style_init(&stTabBtnOn);
-    lv_style_set_text_color(&stTabBtnOn, C(col::ACC));
-    lv_style_set_bg_color(&stTabBtnOn, C(col::SEL));
+    lv_style_set_text_color(&stTabBtnOn, C(P->selText));
+    lv_style_set_border_color(&stTabBtnOn, C(P->selText));
+    lv_style_set_bg_color(&stTabBtnOn, C(P->sel));
     lv_style_set_bg_opa(&stTabBtnOn, LV_OPA_COVER);
 }
 
@@ -197,7 +222,17 @@ static lv_obj_t* card(lv_obj_t* parent, const char* title = nullptr) {
     lv_obj_set_size(c, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_scrollable(c, false);
-    if (title) lv_obj_add_style(label(c, title), &stTitle, 0);
+    if (title) {
+        if (P->capsTitles) {                                        // como SectionLabel de la app: MAYUSCULAS espaciadas
+            std::string t(title);
+            for (char& ch : t) ch = (char)toupper((unsigned char)ch);
+            lv_obj_t* l = label(c, t.c_str(), L.fSub);
+            lv_obj_set_style_text_color(l, C(P->mut), 0);
+            lv_obj_set_style_text_letter_space(l, 2, 0);
+        } else {
+            lv_obj_add_style(label(c, title), &stTitle, 0);
+        }
+    }
     return c;
 }
 // fila que reparte su contenido y pasa a la linea siguiente si no cabe
@@ -232,7 +267,7 @@ struct Kv {
     size_t n = 0;
     void create(lv_obj_t* parent, const char* title = nullptr) { box = card(parent, title); lv_obj_set_style_pad_row(box, L.sz == Size::S ? 2 : L.pad / 2, 0); }
     void begin() { n = 0; }
-    void add(const char* k, const char* v, uint32_t color = col::FG) {
+    void add(const char* k, const char* v, uint32_t color = P->fg) {
         if (n == rows.size()) {
             lv_obj_t* r = plain(box);
             lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW);
@@ -315,7 +350,7 @@ static void tableDraw(lv_event_t* e) {
     lv_draw_task_t* t = lv_event_get_draw_task(e);
     lv_draw_dsc_base_t* base = (lv_draw_dsc_base_t*)lv_draw_task_get_draw_dsc(t);
     if (base->part != LV_PART_ITEMS || base->id1 != 0) return;
-    if (lv_draw_task_get_type(t) == LV_DRAW_TASK_TYPE_LABEL) lv_draw_task_get_label_dsc(t)->color = C(col::MUT);
+    if (lv_draw_task_get_type(t) == LV_DRAW_TASK_TYPE_LABEL) lv_draw_task_get_label_dsc(t)->color = C(P->mut);
 }
 static lv_obj_t* table(lv_obj_t* parent) {
     lv_obj_t* t = lv_table_create(parent);
@@ -394,10 +429,10 @@ static void onModeSet(lv_event_t*) {
     lv_obj_t* t = lv_msgbox_add_title(mbMode, "Change tracker mode");
     lv_obj_set_style_text_font(t, L.fBold, 0);
     lv_obj_t* hdr = lv_msgbox_get_header(mbMode);
-    lv_obj_set_style_bg_color(hdr, C(col::HDR), 0);
-    lv_obj_set_style_text_color(hdr, lv_color_white(), 0);
+    lv_obj_set_style_bg_color(hdr, C(P->hdr), 0);
+    lv_obj_set_style_text_color(hdr, C(P->hdrTitle), 0);
     lv_msgbox_add_text(mbMode, "The tracker restarts in the selected mode.");
-    lv_obj_set_style_bg_color(lv_msgbox_get_footer(mbMode), C(col::CARD), 0);
+    lv_obj_set_style_bg_color(lv_msgbox_get_footer(mbMode), C(P->card), 0);
     lv_obj_set_width(mbMode, board::W - 20 < 520 ? board::W - 20 : 520);
     const int bw = L.sz == Size::S ? 90 : 160;
     lv_obj_t* bOk = lv_msgbox_add_footer_button(mbMode, "Switch");
@@ -448,6 +483,12 @@ static void onBack(lv_event_t* e) {                              // - / + de 10 
     showBacklight();
 }
 
+// Paleta: se guarda en la pantalla y se aplica al arrancar (main reinicia)
+static void onTheme(lv_event_t* e) {
+    const int t = (int)(intptr_t)lv_event_get_user_data(e);
+    if (t != themeIdx && themeCb) themeCb(t);
+}
+
 static void onTab(lv_event_t*) {
     // al abrir cada pestaña se piden sus datos al momento
     uint32_t t = lv_tabview_get_tab_active(tabs);
@@ -459,7 +500,7 @@ static void onTab(lv_event_t*) {
 
 // ---------- construccion ----------
 static void page(lv_obj_t* tab, lv_flex_flow_t flow = LV_FLEX_FLOW_COLUMN) {
-    lv_obj_set_style_bg_color(tab, C(col::BG), 0);
+    lv_obj_set_style_bg_color(tab, C(P->bg), 0);
     lv_obj_set_style_bg_opa(tab, LV_OPA_COVER, 0);
     lv_obj_set_flex_flow(tab, flow);
     lv_obj_set_style_pad_all(tab, L.pad, 0);
@@ -479,7 +520,7 @@ static void buildDash() {
     lv_obj_t* r1 = row(ctl);
     label(r1, "Digipeater");
     swDigi = lv_switch_create(r1);
-    lv_obj_set_style_bg_color(swDigi, C(col::BTN), 0);
+    lv_obj_set_style_bg_color(swDigi, C(P->btn), 0);
     lv_obj_add_event_cb(swDigi, onDigi, LV_EVENT_VALUE_CHANGED, nullptr);
     lv_obj_t* r2 = row(ctl);
     ddMode = lv_dropdown_create(r2);
@@ -488,9 +529,9 @@ static void buildDash() {
     lv_obj_set_style_text_font(ddMode, L.fBase, 0);
     lv_obj_set_style_text_font(ddMode, L.sz == Size::L ? &lv_font_montserrat_20 : L.sz == Size::M ? &lv_font_montserrat_16 : &lv_font_montserrat_14, LV_PART_INDICATOR);
     lv_obj_t* list = lv_dropdown_get_list(ddMode);
-    lv_obj_set_style_bg_color(list, C(col::CARD), 0);
-    lv_obj_set_style_text_color(list, C(col::FG), 0);
-    lv_obj_set_style_border_color(list, C(col::LINE), 0);
+    lv_obj_set_style_bg_color(list, C(P->card), 0);
+    lv_obj_set_style_text_color(list, C(P->fg), 0);
+    lv_obj_set_style_border_color(list, C(P->line), 0);
     lv_dropdown_set_options(ddMode, "-");
     button(r2, "Switch mode", onModeSet, nullptr, 0, true);
 }
@@ -547,27 +588,27 @@ static void buildCompass(lv_obj_t* parent) {
     lv_scale_set_text_src(compass, txt);
     lv_scale_set_label_show(compass, true);
     const int k = L.compass / 150;                              // 1 en la pequena, 2 en la grande
-    lv_obj_set_style_bg_color(compass, C(col::CARD), 0);
+    lv_obj_set_style_bg_color(compass, C(P->card), 0);
     lv_obj_set_style_bg_opa(compass, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(compass, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_arc_color(compass, C(col::LINE), 0);
+    lv_obj_set_style_arc_color(compass, C(P->line), 0);
     lv_obj_set_style_arc_width(compass, 2 * k, 0);
-    lv_obj_set_style_line_color(compass, C(col::LINE), LV_PART_ITEMS);
+    lv_obj_set_style_line_color(compass, C(P->line), LV_PART_ITEMS);
     lv_obj_set_style_length(compass, 5 * k, LV_PART_ITEMS);
     lv_obj_set_style_line_width(compass, 1 + k / 2, LV_PART_ITEMS);
-    lv_obj_set_style_line_color(compass, C(col::MUT), LV_PART_INDICATOR);
+    lv_obj_set_style_line_color(compass, C(P->mut), LV_PART_INDICATOR);
     lv_obj_set_style_length(compass, 10 * k, LV_PART_INDICATOR);
     lv_obj_set_style_line_width(compass, 2 * k, LV_PART_INDICATOR);
-    lv_obj_set_style_text_color(compass, C(col::MUT), LV_PART_INDICATOR);
+    lv_obj_set_style_text_color(compass, C(P->mut), LV_PART_INDICATOR);
     lv_obj_set_style_text_font(compass, L.fSub, LV_PART_INDICATOR);
     lv_obj_set_style_pad_radial(compass, 4 * k, LV_PART_INDICATOR);
     static lv_style_t stN, stCard4;
     lv_style_init(&stN);
-    lv_style_set_text_color(&stN, C(col::RED));
+    lv_style_set_text_color(&stN, C(P->red));
     lv_style_set_text_font(&stN, L.fBold);
-    lv_style_set_line_color(&stN, C(col::RED));
+    lv_style_set_line_color(&stN, C(P->red));
     lv_style_init(&stCard4);
-    lv_style_set_text_color(&stCard4, lv_color_white());
+    lv_style_set_text_color(&stCard4, C(P->fg));
     lv_style_set_text_font(&stCard4, L.fBold);
     lv_scale_section_t* sN = lv_scale_add_section(compass);
     lv_scale_set_section_range(compass, sN, 0, 0);
@@ -578,7 +619,7 @@ static void buildCompass(lv_obj_t* parent) {
         lv_scale_set_section_style_indicator(compass, s, &stCard4);
     }
     needle = lv_line_create(compass);
-    lv_obj_set_style_line_color(needle, C(col::RED), 0);
+    lv_obj_set_style_line_color(needle, C(P->needle), 0);
     lv_obj_set_style_line_width(needle, 3 * k, 0);
     lv_obj_set_style_line_rounded(needle, true, 0);
     lv_scale_set_line_needle_value(compass, needle, L.compass / 2 - 18 * k, 0);
@@ -586,9 +627,9 @@ static void buildCompass(lv_obj_t* parent) {
     lv_obj_remove_style_all(dot);
     lv_obj_set_size(dot, 8 * k + 4, 8 * k + 4);
     lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_border_color(dot, lv_color_white(), 0);
+    lv_obj_set_style_border_color(dot, C(P->fg), 0);
     lv_obj_set_style_border_width(dot, 2 * k, 0);
-    lv_obj_set_style_bg_color(dot, C(col::CARD), 0);
+    lv_obj_set_style_bg_color(dot, C(P->card), 0);
     lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
     lv_obj_center(dot);
 }
@@ -619,7 +660,7 @@ static void buildSat() {
     lv_obj_t* sep = lv_obj_create(right);                       // raya entre AZ y EL, como en el rotor
     lv_obj_remove_style_all(sep);
     lv_obj_set_size(sep, LV_PCT(100), 1);
-    lv_obj_set_style_bg_color(sep, C(col::LINE), 0);
+    lv_obj_set_style_bg_color(sep, C(P->line), 0);
     lv_obj_set_style_bg_opa(sep, LV_OPA_COVER, 0);
     bigValue(right, "EL", &lblEl);
     lblSatInfo = wrapLabel(right, "SAT mode inactive");
@@ -658,7 +699,17 @@ static void buildSet() {
     button(r, L.sz == Size::S ? "Forget" : "Forget pairing", onForget);
     button(r, "Reconnect", onReconnect);
     lblPinRes = wrapLabel(c, "");
-    setColor(lblPinRes, col::RED);
+    setColor(lblPinRes, P->red);
+
+    lv_obj_t* tc = card(tabSet, "Theme");                       // paleta de la app Android o de la pantalla del rotor
+    lv_obj_t* tr = row(tc);
+    static const char* names[] = {"App", "Rotor"};
+    for (int i = 0; i < 2; i++) {
+        lv_obj_t* tb = button(tr, names[i], onTheme, (void*)(intptr_t)i, L.sz == Size::S ? 90 : 140);
+        if (i == themeIdx) { lv_obj_set_style_border_color(tb, C(P->selText), 0); lv_obj_set_style_text_color(tb, C(P->selText), 0); }
+    }
+    lv_obj_add_style(wrapLabel(tc, "The display restarts to apply it"), &stKey, 0);
+    if (L.sz == Size::L) lv_obj_set_width(tc, LV_PCT(45));
 
     lv_obj_t* bc = card(tabSet);                                // - Backlight 100 % +, como el brillo del rotor
     lv_obj_t* br = row(bc);
@@ -674,9 +725,9 @@ static void buildHeader() {
     lv_obj_t* top = lv_obj_create(scr);
     lv_obj_remove_style_all(top);
     lv_obj_set_size(top, board::W, L.topH);
-    lv_obj_set_style_bg_color(top, C(col::HDR), 0);
+    lv_obj_set_style_bg_color(top, C(P->hdr), 0);
     lv_obj_set_style_bg_opa(top, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(top, C(col::HDR_LINE), 0);
+    lv_obj_set_style_border_color(top, C(P->hdrLine), 0);
     lv_obj_set_style_border_width(top, L.sz == Size::L ? 2 : 1, 0);
     lv_obj_set_style_border_side(top, LV_BORDER_SIDE_BOTTOM, 0);
     lv_obj_set_style_pad_hor(top, L.pad, 0);
@@ -692,9 +743,9 @@ static void buildHeader() {
     lv_obj_align(icon, LV_ALIGN_LEFT_MID, 0, 0);
     const int tx = L.iconPx + L.pad + (L.sz == Size::L ? 6 : 0);
     lv_obj_t* title = label(top, "APRS LoRa+", L.fTitle);
-    lv_obj_set_style_text_color(title, lv_color_white(), 0);
+    lv_obj_set_style_text_color(title, C(P->hdrTitle), 0);
     lv_obj_t* sub = label(top, "Display " DISPLAY_VERSION, L.fSub);
-    lv_obj_set_style_text_color(sub, C(col::SUB), 0);
+    lv_obj_set_style_text_color(sub, C(P->sub), 0);
     const int th = lv_font_get_line_height(L.fTitle), sh = lv_font_get_line_height(L.fSub);
     const int y0 = (L.topH - th - sh) / 2;
     lv_obj_set_pos(title, tx, y0 - 1);
@@ -710,7 +761,7 @@ static void buildHeader() {
         lv_obj_align(topLink2, LV_ALIGN_BOTTOM_RIGHT, 0, -y0);
     }
     topInfo = label(top, "", L.fSub);                           // bateria del tracker
-    lv_obj_set_style_text_color(topInfo, C(col::SUB), 0);
+    lv_obj_set_style_text_color(topInfo, C(P->sub), 0);
     if (L.sz == Size::L) lv_obj_align(topInfo, LV_ALIGN_CENTER, 120, 0);
     else if (L.sz == Size::M) lv_obj_align(topInfo, LV_ALIGN_CENTER, 20, 0);
     else lv_obj_set_hidden(topInfo, true);
@@ -732,7 +783,7 @@ static void showSplash(lv_obj_t* mainScr) {
     lv_obj_t* ver = lv_label_create(sp);
     lv_label_set_text(ver, "Display " DISPLAY_VERSION);
     lv_obj_set_style_text_font(ver, L.fBase, 0);
-    lv_obj_set_style_text_color(ver, C(col::LOGO), 0);
+    lv_obj_set_style_text_color(ver, C(P->logo), 0);
     lv_obj_align(ver, LV_ALIGN_CENTER, 0, -L.topH / 2 + hShown / 2 + 4 + lv_font_get_line_height(L.fBase) / 2);
     lv_screen_load(sp);
     lv_obj_fade_in(img, 700, 0);
@@ -740,19 +791,22 @@ static void showSplash(lv_obj_t* mainScr) {
     lv_screen_load_anim(mainScr, LV_SCREEN_LOAD_ANIM_FADE_IN, 500, 2200, true);
 }
 
-void begin(proto::Model* model) {
+void begin(proto::Model* model, int theme, void (*onThemeChange)(int)) {
     M = model;
+    themeIdx = theme == THEME_ROTOR ? THEME_ROTOR : THEME_APP;
+    P = themeIdx == THEME_ROTOR ? &PAL_ROTOR : &PAL_APP;
+    themeCb = onThemeChange;
     L = makeLayout(board::W, board::H);
     pickColumns();
     // tema oscuro con el azul del rotor y la letra de esta pantalla; encima, los estilos de arriba
     lv_display_t* d = lv_display_get_default();
-    lv_display_set_theme(d, lv_theme_default_init(d, C(col::ACC), C(col::RED), true, L.fBase));
+    lv_display_set_theme(d, lv_theme_default_init(d, C(P->acc), C(P->red), true, L.fBase));
     lv_obj_set_style_text_font(lv_layer_top(), L.fBase, 0);     // la ventana de modo y el teclado viven en la capa superior
     initStyles();
 
     scr = lv_obj_create(nullptr);
-    lv_obj_set_style_bg_color(scr, C(col::BG), 0);
-    lv_obj_set_style_text_color(scr, C(col::FG), 0);
+    lv_obj_set_style_bg_color(scr, C(P->bg), 0);
+    lv_obj_set_style_text_color(scr, C(P->fg), 0);
     lv_obj_set_style_text_font(scr, L.fBase, 0);
     buildHeader();
 
@@ -761,9 +815,9 @@ void begin(proto::Model* model) {
     lv_tabview_set_tab_bar_size(tabs, L.tabBar);
     lv_obj_set_size(tabs, board::W, board::H - L.topH);
     lv_obj_set_pos(tabs, 0, L.topH);
-    lv_obj_set_style_bg_color(tabs, C(col::BG), 0);
+    lv_obj_set_style_bg_color(tabs, C(P->bg), 0);
     lv_obj_t* bar = lv_tabview_get_tab_bar(tabs);
-    lv_obj_set_style_bg_color(bar, C(col::CARD), 0);
+    lv_obj_set_style_bg_color(bar, C(P->card), 0);
     lv_obj_set_style_text_font(bar, L.fTab, 0);
     struct { const char* text; const char* icon; lv_obj_t** tab; } T[] = {
         {"Status", LV_SYMBOL_HOME, &tabDash}, {"Heard", LV_SYMBOL_LIST, &tabHeard}, {"Messages", LV_SYMBOL_ENVELOPE, &tabMsgs},
@@ -780,9 +834,9 @@ void begin(proto::Model* model) {
     kb = lv_keyboard_create(lv_layer_top());
     lv_obj_set_size(kb, board::W, L.kbH);
     lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_set_style_bg_color(kb, C(col::CARD), 0);
-    lv_obj_set_style_bg_color(kb, C(col::BTN), LV_PART_ITEMS);
-    lv_obj_set_style_text_color(kb, lv_color_white(), LV_PART_ITEMS);
+    lv_obj_set_style_bg_color(kb, C(P->card), 0);
+    lv_obj_set_style_bg_color(kb, C(P->btn), LV_PART_ITEMS);
+    lv_obj_set_style_text_color(kb, C(P->btnText), LV_PART_ITEMS);
     lv_obj_set_hidden(kb, true);
 
     buildDash(); buildHeard(); buildMsgs(); buildSens(); buildSat(); buildMirror(); buildPages(); buildSet();
@@ -815,13 +869,13 @@ void update() {
 
     // cabecera: nombre del tracker arriba, "BLE ●" debajo (blanco enlazado, rosa si no), como WiFi / BLE en el rotor
     setText(topLink1, linked ? trk::peerName().c_str() : trk::stateText());
-    setColor(topLink1, linked ? 0xffffff : col::OFF);
+    setColor(topLink1, linked ? P->hdrTitle : P->off);
     setText(topLink2, linked ? "BLE " "\xE2\x97\x8F" : "BLE");
-    setColor(topLink2, linked ? 0xffffff : col::OFF);
+    setColor(topLink2, linked ? P->on : P->off);
 
     // ajustes: enlace
     kvSet.begin();
-    kvSet.add("BLE", trk::stateText(), linked ? col::GREEN : col::YEL);
+    kvSet.add("BLE", trk::stateText(), linked ? P->green : P->yel);
     kvSet.add("Tracker", linked ? trk::peerName().c_str() : "-");
     kvSet.add("Board", M->info.ok ? M->info.board.c_str() : "-");
     kvSet.add("Firmware", M->info.ok ? M->info.fw.c_str() : "-");
@@ -837,27 +891,27 @@ void update() {
     // Estado: lista clave / valor
     kvDash.begin();
     if (M->gnss.ok) {
-        kvDash.addf("GNSS", M->gnss.fix ? col::GREEN : col::YEL, "%s, %d sats", M->gnss.fix ? "fix" : "no fix", M->gnss.sats);
-        kvDash.addf("Position", col::FG, "%.5f, %.5f", M->gnss.lat, M->gnss.lon);
-        kvDash.addf("Altitude", col::FG, "%.0f m", M->gnss.alt);
-        kvDash.addf("Speed", col::FG, "%.0f km/h", M->gnss.spd);
-        kvDash.addf("HDOP", col::FG, "%.1f", M->gnss.hdop);
+        kvDash.addf("GNSS", M->gnss.fix ? P->green : P->yel, "%s, %d sats", M->gnss.fix ? "fix" : "no fix", M->gnss.sats);
+        kvDash.addf("Position", P->fg, "%.5f, %.5f", M->gnss.lat, M->gnss.lon);
+        kvDash.addf("Altitude", P->fg, "%.0f m", M->gnss.alt);
+        kvDash.addf("Speed", P->fg, "%.0f km/h", M->gnss.spd);
+        kvDash.addf("HDOP", P->fg, "%.1f", M->gnss.hdop);
         if (!M->gnss.utc.empty()) kvDash.add("UTC", M->gnss.utc.c_str());
     } else {
-        kvDash.add("GNSS", "-", col::MUT);
+        kvDash.add("GNSS", "-", P->mut);
     }
     if (M->status.ok) {
         kvDash.add("Mode", modeName(M->status.mode).c_str());
-        kvDash.addf("Profile", col::FG, "%d  (LoRa %d)", M->status.profile, M->status.lora);
+        kvDash.addf("Profile", P->fg, "%d  (LoRa %d)", M->status.profile, M->status.lora);
         std::string fl;
         if (M->status.smart) fl += "SmartBeacon ";
         if (M->status.digi) fl += "digi ";
         if (!fl.empty()) kvDash.add("Active", fl.c_str());
-        if (M->status.sos) kvDash.add("SOS", "on", col::RED);
-        kvDash.addf("Uptime", col::FG, "%luh %02lum", (unsigned long)(M->status.up / 3600), (unsigned long)(M->status.up / 60 % 60));
+        if (M->status.sos) kvDash.add("SOS", "on", P->red);
+        kvDash.addf("Uptime", P->fg, "%luh %02lum", (unsigned long)(M->status.up / 3600), (unsigned long)(M->status.up / 60 % 60));
         if (M->status.digi) lv_obj_add_state(swDigi, LV_STATE_CHECKED); else lv_obj_remove_state(swDigi, LV_STATE_CHECKED);
     }
-    if (!M->lastError.empty()) kvDash.add("Error", M->lastError.c_str(), col::RED);
+    if (!M->lastError.empty()) kvDash.add("Error", M->lastError.c_str(), P->red);
     kvDash.end();
     if (M->info.ok) {
         std::string opts;
@@ -909,27 +963,27 @@ void update() {
         const proto::Sensors& sn = M->sensors;
         kvSens.begin();
         if (sn.ok) {
-            if (sn.batt > 0) kvSens.addf("Battery", col::FG, "%.2f V", sn.batt);
-            if (sn.battPct >= 0) kvSens.addf("Charge", col::FG, "%d %%", sn.battPct);
-            if (sn.temp > -900) kvSens.addf("Temperature", col::FG, "%.1f \xC2\xB0" "C", sn.temp);
-            if (sn.hum >= 0) kvSens.addf("Humidity", col::FG, "%.0f %%", sn.hum);
-            if (sn.press > 0) kvSens.addf("Pressure", col::FG, "%.1f hPa", sn.press);
-            if (sn.qnh > 0) kvSens.addf("QNH", col::FG, "%.1f hPa%s", sn.qnh, sn.qnhSrc == "net" ? "  (internet)" : sn.qnhSrc == "man" ? "  (manual)" : "");
-            if (sn.baroAlt > -900) kvSens.addf("Baro altitude", col::FG, "%.0f m", sn.baroAlt);
-            if (sn.heading >= 0) kvSens.addf("Heading", col::FG, "%.0f\xC2\xB0", sn.heading);
+            if (sn.batt > 0) kvSens.addf("Battery", P->fg, "%.2f V", sn.batt);
+            if (sn.battPct >= 0) kvSens.addf("Charge", P->fg, "%d %%", sn.battPct);
+            if (sn.temp > -900) kvSens.addf("Temperature", P->fg, "%.1f \xC2\xB0" "C", sn.temp);
+            if (sn.hum >= 0) kvSens.addf("Humidity", P->fg, "%.0f %%", sn.hum);
+            if (sn.press > 0) kvSens.addf("Pressure", P->fg, "%.1f hPa", sn.press);
+            if (sn.qnh > 0) kvSens.addf("QNH", P->fg, "%.1f hPa%s", sn.qnh, sn.qnhSrc == "net" ? "  (internet)" : sn.qnhSrc == "man" ? "  (manual)" : "");
+            if (sn.baroAlt > -900) kvSens.addf("Baro altitude", P->fg, "%.0f m", sn.baroAlt);
+            if (sn.heading >= 0) kvSens.addf("Heading", P->fg, "%.0f\xC2\xB0", sn.heading);
         } else {
-            kvSens.add("-", "No sensor data yet", col::MUT);
+            kvSens.add("-", "No sensor data yet", P->mut);
         }
         kvSens.end();
         const proto::NetWx& n = sn.net;
         lv_obj_set_hidden(kvNet.box, !(sn.ok && n.ok));
         if (sn.ok && n.ok) {
             kvNet.begin();
-            kvNet.addf("Source", col::FG, "%s%s%s, %u min ago", n.src.c_str(), n.place.empty() ? "" : " \xC2\xB7 ", n.place.c_str(), (unsigned)(n.age / 60));
+            kvNet.addf("Source", P->fg, "%s%s%s, %u min ago", n.src.c_str(), n.place.empty() ? "" : " \xC2\xB7 ", n.place.c_str(), (unsigned)(n.age / 60));
             if (!n.desc.empty()) kvNet.add("Sky", n.desc.c_str());
-            if (n.t > -900) kvNet.addf("Temperature", col::FG, "%.1f \xC2\xB0" "C", n.t);
-            if (n.h >= 0) kvNet.addf("Humidity", col::FG, "%.0f %%", n.h);
-            if (n.p > 0) kvNet.addf("Pressure", col::FG, "%.1f hPa (sea level)", n.p);
+            if (n.t > -900) kvNet.addf("Temperature", P->fg, "%.1f \xC2\xB0" "C", n.t);
+            if (n.h >= 0) kvNet.addf("Humidity", P->fg, "%.0f %%", n.h);
+            if (n.p > 0) kvNet.addf("Pressure", P->fg, "%.1f hPa (sea level)", n.p);
             if (n.ws >= 0) {
                 char w[64];
                 int k = snprintf(w, sizeof w, "%.1f m/s", n.ws);
@@ -937,15 +991,15 @@ void update() {
                 if (n.wd >= 0) snprintf(w + k, sizeof w - k, " from %d\xC2\xB0", n.wd);
                 kvNet.add("Wind", w);
             }
-            if (n.rain >= 0) kvNet.addf("Rain", col::FG, "%.1f mm/h", n.rain);
-            if (n.clouds >= 0) kvNet.addf("Clouds", col::FG, "%d %%", n.clouds);
-            if (n.aqiUs >= 0) kvNet.addf("Air quality", col::FG, "US AQI %d%s%s", n.aqiUs, n.pollutant.empty() ? "" : " ", n.pollutant.c_str());
+            if (n.rain >= 0) kvNet.addf("Rain", P->fg, "%.1f mm/h", n.rain);
+            if (n.clouds >= 0) kvNet.addf("Clouds", P->fg, "%d %%", n.clouds);
+            if (n.aqiUs >= 0) kvNet.addf("Air quality", P->fg, "US AQI %d%s%s", n.aqiUs, n.pollutant.empty() ? "" : " ", n.pollutant.c_str());
             else if (n.aqiOwm > 0) {
                 static const char* names[] = {"", "good", "fair", "moderate", "poor", "very poor"};
-                kvNet.addf("Air quality", col::FG, "%d/5 %s", n.aqiOwm, names[n.aqiOwm > 5 ? 5 : n.aqiOwm]);
+                kvNet.addf("Air quality", P->fg, "%d/5 %s", n.aqiOwm, names[n.aqiOwm > 5 ? 5 : n.aqiOwm]);
             }
-            if (n.pm25 >= 0) kvNet.addf("PM2.5", col::FG, "%.1f \xC2\xB5g/m\xC2\xB3", n.pm25);
-            if (n.pm10 >= 0) kvNet.addf("PM10", col::FG, "%.1f \xC2\xB5g/m\xC2\xB3", n.pm10);
+            if (n.pm25 >= 0) kvNet.addf("PM2.5", P->fg, "%.1f \xC2\xB5g/m\xC2\xB3", n.pm25);
+            if (n.pm10 >= 0) kvNet.addf("PM10", P->fg, "%.1f \xC2\xB5g/m\xC2\xB3", n.pm10);
             kvNet.end();
         }
     }

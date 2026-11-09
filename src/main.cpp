@@ -8,6 +8,7 @@
 #include <Arduino.h>
 #include <cstring>
 #include <esp_heap_caps.h>
+#include <Preferences.h>
 #include <lvgl.h>
 #include "board.h"
 #include "protocol.h"
@@ -19,6 +20,24 @@ static lv_display_t* disp = nullptr;
 
 // La placa avisa cuando ya se puede reutilizar el buffer (al momento en los paneles RGB, al acabar el DMA en los SPI)
 static void drawDone() { lv_display_flush_ready(disp); }
+
+// Paleta elegida en Settings: se guarda y se arranca de nuevo para montar la interfaz con ella
+static int loadTheme() {
+    Preferences p;
+    p.begin("display", true);
+    int t = p.getInt("theme", ui::THEME_APP);
+    p.end();
+    return t;
+}
+static void saveTheme(int t) {
+    Preferences p;
+    p.begin("display", false);
+    p.putInt("theme", t);
+    p.end();
+    Serial.printf("[main] paleta %d: reinicio\n", t);
+    delay(100);
+    ESP.restart();
+}
 
 static void flush(lv_display_t*, const lv_area_t* a, uint8_t* px) {
     if (board::swapBytes()) lv_draw_rgb565_swap(px, (uint32_t)lv_area_get_width(a) * lv_area_get_height(a));
@@ -62,7 +81,7 @@ void setup() {
     lv_indev_set_read_cb(indev, readTouch);
 
     trk::begin();
-    ui::begin(&model);
+    ui::begin(&model, loadTheme(), saveTheme);
     if (!ok) Serial.println("La placa no ha arrancado bien: revisar docs/HARDWARE.md");
 }
 
