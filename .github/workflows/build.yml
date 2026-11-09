@@ -62,7 +62,7 @@ jobs:
               run: |
                   for e in $BOARDS; do
                       echo "== $e"; ls -l .pio/build/$e/firmware.bin
-                      pio run -e $e -t size | grep -E "RAM:|Flash:"
+                      pio run -e $e -t size | tail -4 || true
                   done
 
             - uses: actions/upload-artifact@v4
