@@ -9,7 +9,7 @@ Pantalla grande y táctil para el tracker: **Waveshare ESP32-S3-Touch-LCD-7B** (
 
 ## Estructura
 - `src/protocol.*`: C++ puro (modelo y órdenes del tracker), probado en el PC: `test/test_protocol.cpp` (34 comprobaciones; `g++ -std=c++17 -I src -I <ArduinoJson>/src test/test_protocol.cpp src/protocol.cpp`).
-- `src/board_lcd7b.*`: panel RGB, táctil, expansor. `src/tracker_link.*`: cliente NimBLE con PIN. `src/ui.*`: LVGL 8.4. `src/main.cpp`. `src/lv_defs.h`: `LV_FONT_DEFAULT` (con `-D` el `&` rompe la orden del compilador).
+- `src/board_lcd7b.*`: panel RGB, táctil, expansor. `src/tracker_link.*`: cliente NimBLE con PIN. `src/ui.*`: LVGL 8.4. `src/main.cpp`. `src/ui_assets.*`: icono de la app y pantalla de arranque (bienvenida de la app), generados por `tools/make_ui_assets.py` desde `tools/assets/`. `src/lv_defs.h`: `LV_FONT_DEFAULT` (con `-D` el `&` rompe la orden del compilador).
 - Plataforma `espressif32 @ 8.0.0` (registro de PlatformIO; las descargas de GitHub Releases de pioarduino daban 504). `Serial` = UART0 (CH343), no USB nativo (compartido con CAN).
 - Instalador web: `tools/make_web_assets.py` + `release.yml` (etiqueta `v5.3.5` → `display-waveshare_lcd7b.zip` y `web-site-display.zip`); el job `pages` del tracker lo descarga con la misma etiqueta (secreto `FLASHER_TOKEN`). Por USB contesta a `APRS-INFO?` con `device=display`.
 

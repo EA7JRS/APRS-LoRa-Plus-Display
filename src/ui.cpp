@@ -7,6 +7,7 @@
 #include "ui.h"
 #include "board_lcd7b.h"
 #include "tracker_link.h"
+#include "ui_assets.h"
 #include <lvgl.h>
 #include <cmath>
 #include <cstdio>
@@ -281,16 +282,42 @@ static void buildSet() {
     lv_obj_add_event_cb(slBack, onBack, LV_EVENT_VALUE_CHANGED, nullptr);
 }
 
+// Pantalla de arranque: la de bienvenida de la app (logo sobre #131A22, entra con fundido) y debajo "Display <version>";
+// a los 2,2 s pasa con fundido a la pantalla principal (que ya esta montada) y se borra.
+static void showSplash(lv_obj_t* mainScr) {
+    lv_obj_t* sp = lv_obj_create(nullptr);
+    lv_obj_set_style_bg_color(sp, lv_color_hex(SPLASH_BG_RGB), 0);
+    lv_obj_set_style_bg_opa(sp, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(sp, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t* img = lv_img_create(sp);
+    lv_img_set_src(img, &img_splash);
+    lv_obj_align(img, LV_ALIGN_CENTER, 0, -18);
+    lv_obj_t* ver = lv_label_create(sp);
+    lv_label_set_text(ver, "Display " DISPLAY_VERSION);
+    lv_obj_set_style_text_color(ver, lv_color_hex(0x28B5E1), 0);
+    lv_obj_align_to(ver, img, LV_ALIGN_OUT_BOTTOM_MID, 0, 6);
+    lv_scr_load(sp);
+    lv_obj_fade_in(img, 700, 0);
+    lv_obj_fade_in(ver, 700, 300);
+    lv_scr_load_anim(mainScr, LV_SCR_LOAD_ANIM_FADE_ON, 500, 2200, true);
+}
+
 void begin(proto::Model* model) {
     M = model;
-    lv_obj_t* scr = lv_scr_act();
+    lv_obj_t* scr = lv_obj_create(nullptr);
     lv_obj_set_style_text_font(scr, &lv_font_montserrat_20, 0);
 
     lv_obj_t* top = lv_obj_create(scr);
     lv_obj_set_size(top, board::W, 48);
     lv_obj_set_pos(top, 0, 0);
     lv_obj_set_style_radius(top, 0, 0);
-    label(top, "APRS LoRa+ Display " DISPLAY_VERSION, F_BIG);
+    lv_obj_set_style_pad_ver(top, 0, 0);
+    lv_obj_clear_flag(top, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t* icon = lv_img_create(top);                      // icono de la app, como en las WebUI
+    lv_img_set_src(icon, &img_app_icon);
+    lv_obj_align(icon, LV_ALIGN_LEFT_MID, -6, 0);
+    lv_obj_t* title = label(top, "APRS LoRa+ Display " DISPLAY_VERSION, F_BIG);
+    lv_obj_align(title, LV_ALIGN_LEFT_MID, 44, 0);
     topLink = label(top, "", nullptr);
     lv_obj_align(topLink, LV_ALIGN_RIGHT_MID, -6, 0);
     topInfo = label(top, "", nullptr);
@@ -315,6 +342,7 @@ void begin(proto::Model* model) {
     lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
 
     buildDash(); buildHeard(); buildMsgs(); buildSens(); buildSat(); buildMirror(); buildPages(); buildSet();
+    showSplash(scr);
 }
 
 // ---------- actualizacion ----------
