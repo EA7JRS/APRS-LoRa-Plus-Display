@@ -1,6 +1,7 @@
 # Changelog
 
 ## Sin publicar
+- **Aspecto del rotor** (APRS-LoRa-Plus-Rotor): su paleta oscura (fondo #10151c, tarjetas #19212b, azul #4aa3ff), cabecera roja con «APRS LoRa+» en negrita y debajo «Display 5.3.5», nombre del tracker y «BLE ●» a la derecha, listas clave / valor en tarjetas (Status, Sensors, Settings), brújula con N en rojo y AZ / EL grandes en SAT / Rotor, brillo con − / + y letra DejaVu Sans. Las fuentes (`src/fonts`, `tools/make_fonts.sh`) llevan Latin-1 (acentos, ñ, °); los iconos salen de la Montserrat.
 - **Tres placas más**: Waveshare ESP32-S3-Touch-LCD-3.5 / 3.5-C (ST7796, 480×320 en horizontal, FT6336), ESP32-S3-Touch-LCD-2.8B (ST7701 RGB, 480×640 en vertical, GT911) y ESP32-S3-Touch-LCD-1.69 (ST7789V2, 240×280, CST816T). Un entorno de PlatformIO por placa; capa de placa común (`src/board.h`, `src/board_common.*`); la CI y la release compilan las cuatro. Sin probar en las placas: `docs/HARDWARE.md`.
 - La interfaz se adapta a la pantalla: fuentes, pestañas (texto a la izquierda o iconos abajo), columnas de las tablas repartidas por el ancho real, botones a la medida del texto, pantalla de arranque pequeña para menos de 600 líneas. Al abrir el teclado las pestañas se encogen por encima y el campo se pone a la vista; ✓ y el botón de cerrar lo esconden.
 - **LVGL 9.6** (antes 8.4): pantalla, táctil y tick con la API nueva; ventana de cambio de modo con `lv_msgbox` de LVGL 9; icono de la barra en ARGB8888 (LVGL 9 no pinta ARGB8565). NimBLE-Arduino 2.5.2.
