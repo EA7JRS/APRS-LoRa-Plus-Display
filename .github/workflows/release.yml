@@ -12,6 +12,9 @@ on:
             tag:
                 description: "Release ya creada a la que adjuntar los ficheros (p. ej. v5.4.0)"
                 required: true
+            ref:
+                description: "Rama o commit que se compila (vacio = la etiqueta); para corregir una release sin mover la etiqueta"
+                required: false
 
 permissions:
     contents: write
@@ -25,7 +28,7 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               with:
-                  ref: ${{ env.TAG }}
+                  ref: ${{ inputs.ref || env.TAG }}
             - uses: actions/setup-python@v5
               with:
                   python-version: "3.12"

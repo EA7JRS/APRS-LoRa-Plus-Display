@@ -1,6 +1,7 @@
 # Changelog
 
-## Sin publicar
+## 5.4.1 — 2026-11-10
+- Pestaña Sensors: pronóstico y tendencia de 3 h del tiempo de internet del tracker.
 - **Reinicio en bucle arreglado** (7B, 5.4.0 y 5.4.1: «Stack canary watchpoint triggered (loopTask)»). LVGL 9 dibuja cada nivel de objetos con dos funciones que se llaman entre sí y con las pestañas anidadas no cabía en los 8 KB de pila de `loop()`; ahora 32 KB. Cada minuto se escribe por el puerto serie la pila que queda libre (`[main] pila libre`).
 - La release adjunta `display-elf.zip` (el ELF de cada placa) para descodificar las trazas de un fallo.
 
