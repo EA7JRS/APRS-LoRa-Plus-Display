@@ -1,5 +1,9 @@
 # Changelog
 
+## Sin publicar
+- **Reinicio en bucle arreglado** (7B, 5.4.0 y 5.4.1: «Stack canary watchpoint triggered (loopTask)»). LVGL 9 dibuja cada nivel de objetos con dos funciones que se llaman entre sí y con las pestañas anidadas no cabía en los 8 KB de pila de `loop()`; ahora 32 KB. Cada minuto se escribe por el puerto serie la pila que queda libre (`[main] pila libre`).
+- La release adjunta `display-elf.zip` (el ELF de cada placa) para descodificar las trazas de un fallo.
+
 ## 5.4.0 — 2026-11-09
 - **Dos paletas** a elegir en Settings > Theme (se guarda y la pantalla se reinicia): **App**, la de la app Android (`Theme.kt`: fondo #131A22, paneles #18222D con borde #263443, cian #28B5E1, verde #3CE68A para lo encendido, ámbar #FFB347 para lo elegido; cabecera oscura y títulos de tarjeta en mayúsculas espaciadas), que es la de serie, y **Rotor**, la de la pantalla del rotor (cabecera roja).
 - **Aspecto del rotor** (APRS-LoRa-Plus-Rotor): su paleta oscura (fondo #10151c, tarjetas #19212b, azul #4aa3ff), cabecera roja con «APRS LoRa+» en negrita y debajo «Display 5.3.5», nombre del tracker y «BLE ●» a la derecha, listas clave / valor en tarjetas (Status, Sensors, Settings), brújula con N en rojo y AZ / EL grandes en SAT / Rotor, brillo con − / + y letra DejaVu Sans. Las fuentes (`src/fonts`, `tools/make_fonts.sh`) llevan Latin-1 (acentos, ñ, °); los iconos salen de la Montserrat.

@@ -15,6 +15,11 @@
 #include "tracker_link.h"
 #include "ui.h"
 
+// LVGL 9 dibuja cada nivel de objetos con dos funciones que se llaman entre si (refr_obj / lv_obj_redraw)
+// y con las pestanas anidadas no cabe en los 8 KB de serie de loop(): reinicio en bucle con
+// "Stack canary watchpoint triggered (loopTask)" (7B, 5.4.1). 32 KB salen de la RAM interna.
+SET_LOOP_TASK_STACK_SIZE(32 * 1024);
+
 static proto::Model model;
 static lv_display_t* disp = nullptr;
 
@@ -139,5 +144,8 @@ void loop() {
     static uint32_t t = 0;
     if (millis() - t > 300) { t = millis(); ui::update(); }
     lv_timer_handler();
+    // pila libre de loop() (lo minimo que ha quedado), cada minuto por el puerto serie
+    static uint32_t ts = 0;
+    if (millis() - ts > 60000) { ts = millis(); Serial.printf("[main] pila libre: %u bytes\n", (unsigned)uxTaskGetStackHighWaterMark(nullptr)); }
     delay(5);
 }

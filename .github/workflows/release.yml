@@ -56,6 +56,9 @@ jobs:
                   done
                   python3 tools/make_web_assets.py site --root web_site
                   (cd web_site && zip -qr ../web-site-display.zip .)
+                  # ELF de cada placa, para descodificar las trazas de un fallo (Backtrace: ...) con addr2line
+                  rm -rf elf && mkdir -p elf && for e in $BOARDS; do cp .pio/build/$e/firmware.elf elf/$e.elf; done
+                  (cd elf && zip -q9r ../display-elf.zip .)
             - name: Adjuntar a la release
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
