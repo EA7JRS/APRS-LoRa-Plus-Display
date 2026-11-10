@@ -983,7 +983,11 @@ void update() {
             if (!n.desc.empty()) kvNet.add("Sky", n.desc.c_str());
             if (n.t > -900) kvNet.addf("Temperature", P->fg, "%.1f \xC2\xB0" "C", n.t);
             if (n.h >= 0) kvNet.addf("Humidity", P->fg, "%.0f %%", n.h);
-            if (n.p > 0) kvNet.addf("Pressure", P->fg, "%.1f hPa (sea level)", n.p);
+            if (n.p > 0) {
+                if (n.d3 > -900) kvNet.addf("Pressure", P->fg, "%.1f hPa (sea level), %+.1f in 3 h", n.p, n.d3);
+                else kvNet.addf("Pressure", P->fg, "%.1f hPa (sea level)", n.p);
+            }
+            if (!n.forecast.empty()) kvNet.add("Forecast", n.forecast.c_str());
             if (n.ws >= 0) {
                 char w[64];
                 int k = snprintf(w, sizeof w, "%.1f m/s", n.ws);

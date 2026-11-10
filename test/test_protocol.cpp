@@ -19,8 +19,9 @@ int main() {
     CHECK(proto::applyEvent(m, R"J({"e":"sensors","temp":22.0})J"));
     CHECK(m.sensors.press > 1013.0f);   // lo que no llega se conserva
     CHECK(!m.sensors.net.ok);
-    CHECK(proto::applyEvent(m, R"J({"e":"sensors","qnh":1016.0,"qs":"net","net":{"src":"OWM","pl":"Sevilla","t":24.1,"p":1016.0,"ws":5.1,"wg":9.3,"wd":250,"aq":2,"age":420}})J"));
+    CHECK(proto::applyEvent(m, R"J({"e":"sensors","qnh":1016.0,"qs":"net","net":{"src":"OWM","pl":"Sevilla","t":24.1,"p":1016.0,"ws":5.1,"wg":9.3,"wd":250,"aq":2,"age":420,"fc":"Fair, stable","d3":0.4}})J"));
     CHECK(m.sensors.qnhSrc == "net" && m.sensors.net.ok && m.sensors.net.src == "OWM" && m.sensors.net.place == "Sevilla");
+    CHECK(m.sensors.net.forecast == "Fair, stable" && m.sensors.net.d3 > 0.39f && m.sensors.net.d3 < 0.41f);
     CHECK(m.sensors.net.wg > 9.2f && m.sensors.net.wd == 250 && m.sensors.net.aqiOwm == 2 && m.sensors.net.aqiUs == -1 && m.sensors.net.age == 420 && m.sensors.net.h < 0);
     CHECK(proto::applyEvent(m, R"J({"e":"sensors","temp":22.0})J"));
     CHECK(!m.sensors.net.ok && m.sensors.qnhSrc == "net");   // sin "net": caducado en el tracker

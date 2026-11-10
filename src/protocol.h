@@ -24,9 +24,10 @@ struct Status { bool ok = false; int mode = 0, profile = 0, lora = 0; bool digi 
 // Tiempo de internet que la app manda al tracker (OpenWeatherMap / IQAir); llega dentro del evento sensors ("net")
 struct NetWx {
     bool ok = false;
-    std::string src, place, desc, pollutant;
+    std::string src, place, desc, pollutant, forecast;     // forecast: pronostico del tracker con estos datos ("fc")
     float t = -999, h = -1, p = -1, ws = -1, wg = -1, rain = -1, pm25 = -1, pm10 = -1;
     int wd = -1, clouds = -1, aqiOwm = 0, aqiUs = -1;
+    float d3 = -999;                    // cambio de presion en 3 h (hPa), -999 = sin dato
     uint32_t age = 0;
 };
 struct Sensors {

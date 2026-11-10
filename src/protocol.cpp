@@ -41,7 +41,7 @@ bool applyEvent(Model& m, const char* text) {
         JsonObjectConst o = d["net"];
         if (!o.isNull()) {
             n.ok = true;
-            n.src = S(o["src"]); n.place = S(o["pl"]); n.desc = S(o["ds"]); n.pollutant = S(o["mp"]);
+            n.src = S(o["src"]); n.place = S(o["pl"]); n.desc = S(o["ds"]); n.pollutant = S(o["mp"]); n.forecast = S(o["fc"]); n.d3 = o["d3"] | n.d3;
             n.t = o["t"] | n.t; n.h = o["h"] | n.h; n.p = o["p"] | n.p; n.ws = o["ws"] | n.ws; n.wg = o["wg"] | n.wg;
             n.rain = o["r"] | n.rain; n.pm25 = o["pm25"] | n.pm25; n.pm10 = o["pm10"] | n.pm10;
             n.wd = o["wd"] | n.wd; n.clouds = o["cl"] | n.clouds; n.aqiOwm = o["aq"] | 0; n.aqiUs = o["aqus"] | -1;
