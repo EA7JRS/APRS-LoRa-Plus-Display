@@ -8,6 +8,7 @@
  * Se adapta a la pantalla de la placa: grande (1024x600), media (480x320 en horizontal o 480x640 en vertical) y
  * pequena (240x280). Textos en ingles; las fuentes llevan Latin-1 (src/fonts, tools/make_fonts.sh).
  */
+#ifndef UI_RADIO   // la 7B v2 (waveshare_lcd7b_v2) usa la interfaz tipo emisora de src/ui7b/
 #include "ui.h"
 #include "board.h"
 #include "tracker_link.h"
@@ -1062,3 +1063,4 @@ bool heardVisible() { return tabs && lv_tabview_get_tab_active(tabs) == 1; }
 bool messagesVisible() { return tabs && lv_tabview_get_tab_active(tabs) == 2; }
 
 } // namespace ui
+#endif

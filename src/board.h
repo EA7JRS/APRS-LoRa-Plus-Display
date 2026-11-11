@@ -10,7 +10,11 @@
 #include <Arduino.h>
 
 #if defined(BOARD_LCD7B)          // Waveshare ESP32-S3-Touch-LCD-7B: 7", RGB 1024x600, GT911
+#ifdef UI_RADIO                   // la misma placa con la interfaz tipo emisora (7B v2)
+#define BOARD_ENV "waveshare_lcd7b_v2"
+#else
 #define BOARD_ENV "waveshare_lcd7b"
+#endif
 #define BOARD_W 1024
 #define BOARD_H 600
 #elif defined(BOARD_LCD35)        // Waveshare ESP32-S3-Touch-LCD-3.5 / 3.5-C: 3,5", ST7796 SPI 320x480 en horizontal, FT6336
