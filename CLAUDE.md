@@ -16,5 +16,11 @@ Pantalla táctil para el tracker en cuatro placas Waveshare (2026-11-09): **ESP3
 ## Estado (2026-11-08)
 - Compila en la CI (1,45 MB, 22 % de la partición) y pasa las pruebas del protocolo. 2026-11-09: en la placa la pantalla salía negra; arreglado el expansor (EXIOn = bit n, PWM al revés) según el código de Waveshare (`waveshareteam/ESP32-S3-Touch-LCD-7B`). Pendiente de confirmar en la placa. La interfaz se puede probar en el PC con LVGL 9.6 real y placa/enlace simulados (capturas RGB565 del tamaño de cada placa). Las placas 3.5, 2.8B y 1.69 están sin probar (`docs/HARDWARE.md`).
 
+## 7B v2 (rama `lcd7b-v2`, 2026-11-11; nombre de Manuel: `lcd7b_v2`)
+- Entorno `waveshare_lcd7b_v2` = 7B + `-DUI_RADIO`: interfaz tipo emisora de la app (`src/ui7b/r7*.cpp`, `r7.h`; `ui.cpp` queda para las demás placas). Manuel eligió: tracker y radio, mensajes y estaciones, rotor y CAT, lo de WiFi; aspecto como la app; solo la 7B. Pidió ver las imágenes antes de compilar: arnés de PC con LVGL 9.6 real (placa, BLE, red y ajustes simulados) que saca 36 capturas.
+- `src/settings.*` (Preferences `disp7`), `src/net.*` (WiFi, NTP, caja del rotor TCP 4534 / BLE `…-b000-…`, DX Cluster telnet, OpenWeatherMap → `wxnet` y `wx` del rotor, firmware del tracker: baja `ota/<placa>.json`, comprueba SHA-256 y envía por la característica `…0005` con ventana de 8 KB), `tracker_link` con `fwPush` y cerrojo de escaneo compartido. HTTPS sin comprobar certificado (el firmware se valida por su SHA-256).
+- Fuentes `tools/make_fonts_7b.sh`, símbolos `tools/make_symbols.py` (logotipos de marcas en blanco). Una pantalla nueva: `Scr` en `r7.h`, `registerScreen`, tecla en `FK` / `PAGES` de `r7_radio.cpp` y entrada en el menú lateral.
+- Compila en la CI; **sin probar en la placa** (ni la red ni el BLE doble tracker + rotor). Pendiente: Manuel decide si se fusiona en `main` y si entra en la release.
+
 ## Cómo trabajar
 - No publicar releases ni tocar otros repositorios sin que lo pida Manuel (las etiquetas y releases las crea él).

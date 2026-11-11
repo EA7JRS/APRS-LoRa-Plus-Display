@@ -1,5 +1,10 @@
 # Changelog
 
+## Sin publicar (rama `lcd7b-v2`)
+- **7B v2** (`waveshare_lcd7b_v2`, la misma placa 7B con `-DUI_RADIO`): la interfaz tipo emisora de la app Android adaptada a 1024×600 (`src/ui7b/`). RADIO con banda A (tracker: frecuencia, luces TX / RX / MSG / EMG, S-meter) y banda B (CAT de la caja del rotor), teclas [F] + 5 configurables, menú [F] de tres páginas, menú lateral, DISP (brújula, cielo GNSS, altitud, reloj), S.LIST con detalle, mapa de radar (sin teselas), meteo, mensajes por conversación, DAPNET, DX Cluster (telnet por WiFi), TRACKER (modo, balizas, CW y escucha CW, M17, FM y radio comercial, emergencia, rango de la T-TWR), sensores, SAT, caja del rotor por WiFi o BLE (control, seguir, CAT con Doppler, calibración), AIS, pantalla remota con todas las opciones de menú, configuración completa (`cfgget` / `cfgset`), firmware del tracker por internet + BLE, ajustes y alertas de emergencia. Tema oscuro y claro. Letras de la app (Barlow, Barlow Condensed, Share Tech Mono, OFL) y símbolos APRS de aprs.fi.
+- Protocolo ampliado (`src/protocol.*`: info completa, sky, rf, led, eai, cwrx, fm, bcast, ais, actlist, cfg, targets, satélites, páginas juntadas por `from`), protocolo de la caja del rotor (`src/rotor_proto.*`) y DX Cluster (`src/dxcluster.*`): 112 + 35 comprobaciones en el PC.
+- Fuera de la 7B v2 (no caben en un ESP32-S3 o no tienen sentido): SDR, voz digital, FT8 / WSPR, modos de texto, libro de guardia, SigID, iGate, Android Auto, mapas con teselas. **Sin probar en la placa.**
+
 ## 5.4.1 — 2026-11-10
 - Pestaña Sensors: pronóstico y tendencia de 3 h del tiempo de internet del tracker.
 - **Reinicio en bucle arreglado** (7B, 5.4.0 y 5.4.1: «Stack canary watchpoint triggered (loopTask)»). LVGL 9 dibuja cada nivel de objetos con dos funciones que se llaman entre sí y con las pestañas anidadas no cabía en los 8 KB de pila de `loop()`; ahora 32 KB. Cada minuto se escribe por el puerto serie la pila que queda libre (`[main] pila libre`).

@@ -49,3 +49,6 @@ Desde el instalador web del proyecto (Chrome o Edge, placa por USB): https://ea7
 ## Estado
 
 **Sin probar en las placas.** Ver `docs/HARDWARE.md` para lo que está sin verificar de cada una antes del primer arranque.
+
+## 7B v2 (rama `lcd7b-v2`)
+`waveshare_lcd7b_v2`: la misma placa 7B con la interfaz de la app Android (radio de dos bandas, teclas [F], estaciones, mensajes, SAT, caja del rotor y CAT, DX Cluster, AIS, configuración y firmware del tracker). Necesita WiFi para el DX Cluster, el tiempo de internet y el firmware. Sin probar en la placa.
