@@ -58,6 +58,9 @@ Cada dato se toma de la mejor fuente que esté al día: red (LAN), tracker por B
 
 La configuración se guarda en la pantalla (WiFi, servidor, puertos, clave). El código común está en `lib/plotter_core` y `lib/aprs_links`, copiado del plotter con `tools/sync_links.sh` (se cambia allí, donde tiene sus pruebas, y se vuelve a copiar). El Bluetooth NMEA del plotter (pasarela XIAO, instrumento de viento) no está activado aquí todavía: la pantalla ya usa el Bluetooth para el tracker.
 
+## Reloj (OpenHamClock)
+La 7B también puede ser un reloj de radioaficionado con los datos de [OpenHamClock](https://github.com/accius/openhamclock) por WiFi, con CAT por `rigctld` de Hamlib: entorno `waveshare_lcd7b_hamclock`, ver [docs/HAMCLOCK.md](docs/HAMCLOCK.md).
+
 ## Compilar
 
 ```

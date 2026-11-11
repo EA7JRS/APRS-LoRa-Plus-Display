@@ -25,3 +25,11 @@ for s in 16 20 24; do font dejavu_bold_$s DejaVuSans-Bold.ttf $s "$TEXT" lv_font
 font dejavu_bold_28 DejaVuSans-Bold.ttf 28 "$TEXT" lv_font_montserrat_24
 for s in 32 44 60; do font dejavu_num_$s DejaVuSans-Bold.ttf $s "$NUM"; done
 ls -la $OUT
+
+# Reloj (entorno waveshare_lcd7b_hamclock): negritas pequenas y los digitos del reloj con ':' (src/hamclock/fonts)
+OUT=src/hamclock/fonts
+mkdir -p $OUT
+for s in 12 14; do font dejavu_bold_$s DejaVuSans-Bold.ttf $s "$TEXT" lv_font_montserrat_$s; done
+font dejavu_clock_40 DejaVuSans-Bold.ttf 40 "0x20,0x2D-0x3A"
+ls -la $OUT
+ls -la $OUT
