@@ -13,6 +13,10 @@
 #define BOARD_ENV "waveshare_lcd7b"
 #define BOARD_W 1024
 #define BOARD_H 600
+#elif defined(BOARD_LCD7)         // Waveshare ESP32-S3-Touch-LCD-7 (sin B): 7", RGB 800x480, GT911, expansor CH422G
+#define BOARD_ENV "waveshare_lcd7"
+#define BOARD_W 800
+#define BOARD_H 480
 #elif defined(BOARD_LCD35)        // Waveshare ESP32-S3-Touch-LCD-3.5 / 3.5-C: 3,5", ST7796 SPI 320x480 en horizontal, FT6336
 #define BOARD_ENV "waveshare_lcd35"
 #define BOARD_W 480
@@ -26,7 +30,7 @@
 #define BOARD_W 240
 #define BOARD_H 280
 #else
-#error "Falta la placa: -DBOARD_LCD7B, -DBOARD_LCD35, -DBOARD_LCD28B o -DBOARD_LCD169 (ver platformio.ini)"
+#error "Falta la placa: -DBOARD_LCD7B, -DBOARD_LCD7, -DBOARD_LCD35, -DBOARD_LCD28B o -DBOARD_LCD169 (ver platformio.ini)"
 #endif
 
 namespace board {

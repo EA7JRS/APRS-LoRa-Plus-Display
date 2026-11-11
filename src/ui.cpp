@@ -91,6 +91,10 @@ static Layout makeLayout(int w, int h) {
     else                                  // 240 x 280
         l = {Size::S, portrait, &dejavu_14, &dejavu_12, &dejavu_bold_16, &dejavu_12, &dejavu_bold_16, &dejavu_num_32, &lv_font_unscii_8, &dejavu_16, &dejavu_14,
              36, 38, LV_DIR_BOTTOM, true, 96, 34, 120, h * 11 / 20, 24, 150, 4, 2, 6, 98};
+    if (w >= 800 && h < 600) {           // 800 x 480 (Touch-LCD-7): la disposicion grande, mas ajustada
+        l.topH = 56; l.tabBar = 132; l.compass = 290; l.kbH = 220; l.btnW = 190; l.btnH = 50; l.pad = 10; l.keyW = 160;
+        l.fNum = &dejavu_num_44; l.fTitle = &dejavu_bold_24;
+    }
     return l;
 }
 
@@ -545,7 +549,7 @@ static void buildHeard() {
 static void buildMsgs() {
     page(tabMsgs);
     tblMsgs = table(tabMsgs);
-    lv_obj_set_size(tblMsgs, LV_PCT(100), L.sz == Size::L ? 300 : LV_PCT(48));
+    lv_obj_set_size(tblMsgs, LV_PCT(100), L.sz == Size::L && board::H >= 600 ? 300 : LV_PCT(48));
     lv_obj_add_event_cb(tblMsgs, onTblMsgs, LV_EVENT_VALUE_CHANGED, nullptr);
     lv_obj_t* c = card(tabMsgs);
     if (L.sz == Size::L) {
