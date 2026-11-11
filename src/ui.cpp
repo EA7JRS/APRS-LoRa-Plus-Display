@@ -726,9 +726,21 @@ static void buildSet() {
     lv_obj_set_flex_align(ar, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_gap(ar, L.pad * 2, 0);
     const int qs = L.sz == Size::L ? 150 : L.sz == Size::M ? 112 : 96;
-    lv_obj_t* qr = lv_qrcode_create(ar);
+    // Marco con el degradado del logo (verde -> cian) por fuera del margen blanco, que no estorba la lectura;
+    // modulos del color oscuro de la paleta sobre blanco (contraste 17:1)
+    const int ring = L.sz == Size::S ? 4 : 5;
+    lv_obj_t* qw = lv_obj_create(ar);
+    lv_obj_remove_style_all(qw);
+    lv_obj_set_size(qw, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(qw, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(qw, C(0x3CE68A), 0);
+    lv_obj_set_style_bg_grad_color(qw, C(0x28B5E1), 0);
+    lv_obj_set_style_bg_grad_dir(qw, LV_GRAD_DIR_HOR, 0);
+    lv_obj_set_style_pad_all(qw, ring, 0);
+    lv_obj_set_style_radius(qw, ring, 0);
+    lv_obj_t* qr = lv_qrcode_create(qw);
     lv_qrcode_set_size(qr, qs);
-    lv_qrcode_set_dark_color(qr, lv_color_black());
+    lv_qrcode_set_dark_color(qr, C(P->bg));
     lv_qrcode_set_light_color(qr, lv_color_white());
     static const char kDonate[] = "https://paypal.me/ea7jrs";
     lv_qrcode_update(qr, kDonate, sizeof kDonate - 1);
