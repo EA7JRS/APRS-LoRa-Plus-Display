@@ -2,8 +2,9 @@
  * Copyright (C) 2026 Manuel - EA7JRS
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Interfaz tipo emisora de la 7B v2 (entorno waveshare_lcd7b_v2, -DUI_RADIO): la de la app Android APRS LoRa+ (Shell.kt,
- * RadioScreen.kt...) adaptada a 1024 x 600 en horizontal. Barra de estado, bandas A (tracker) y B (CAT de la caja del rotor),
+ * Interfaz tipo emisora (entornos waveshare_lcd7b_v2 y waveshare_lcd7_v2, -DUI_RADIO): la de la app Android APRS LoRa+
+ * (Shell.kt, RadioScreen.kt...) adaptada a 1024 x 600 en horizontal. En la LCD-7 (800 x 480) todo el codigo sigue
+ * trabajando en esas medidas (1024 x 614) y se reduce a 25/32 al llegar a LVGL (R7_SCALED, mas abajo). Barra de estado, bandas A (tracker) y B (CAT de la caja del rotor),
  * teclas tactiles [F] + 5, menu [F] de tres paginas y menu lateral. Comun a todas las pantallas.
  */
 #pragma once
@@ -15,6 +16,29 @@
 #include "rotor_proto.h"
 #include "dxcluster.h"
 
+#if defined(BOARD_LCD7)
+// LCD-7, 800 x 480: fuentes y simbolos a 25/32 (tools/make_fonts_7b.sh, tools/make_symbols.py 22)
+#define R7_SCALED 1
+#define app_text_18 app_text_14
+#define app_text_20 app_text_16
+#define app_text_24 app_text_19
+#define app_semi_20 app_semi_16
+#define app_cond_16 app_cond_13
+#define app_cond_18 app_cond_14
+#define app_bold_18 app_bold_14
+#define app_bold_22 app_bold_17
+#define app_bold_26 app_bold_20
+#define app_bold_34 app_bold_27
+#define app_mono_20 app_mono_16
+#define app_mono_28 app_mono_22
+#define app_mono_40 app_mono_31
+#define app_mono_64 app_mono_50
+#define R7_ICON_L lv_font_montserrat_20
+#define R7_ICON_M lv_font_montserrat_16
+#else
+#define R7_ICON_L lv_font_montserrat_24
+#define R7_ICON_M lv_font_montserrat_20
+#endif
 LV_FONT_DECLARE(app_text_18)
 LV_FONT_DECLARE(app_text_20)
 LV_FONT_DECLARE(app_text_24)
@@ -41,8 +65,19 @@ struct Pal {
 extern const Pal* P;
 inline lv_color_t C(uint32_t v) { return lv_color_hex(v); }
 
-// medidas de la 7B
-constexpr int W = 1024, H = 600;
+// medidas de la 7B. Con R7_SCALED son medidas de dibujo: px() las pasa a puntos reales y las funciones de LVGL que
+// reciben medidas quedan envueltas, asi que las pantallas no cambian. Para puntos reales: (lv_obj_set_size)(...).
+#ifdef R7_SCALED
+constexpr int W = 1024, H = 614, SYM = 22;
+inline int32_t px(int32_t v) {
+    if (!LV_COORD_IS_PX(v) || v == 0) return v;
+    int32_t r = v > 0 ? (v * 25 + 16) / 32 : -((-v * 25 + 16) / 32);
+    return r == 0 ? (v > 0 ? 1 : -1) : r;
+}
+#else
+constexpr int W = 1024, H = 600, SYM = 28;
+inline int32_t px(int32_t v) { return v; }
+#endif
 constexpr int STATUS_H = 54, KEYS_H = 80, PAD = 12, GAP = 10, RADIUS = 14;
 constexpr int CONTENT_H = H - STATUS_H - KEYS_H;          // con las teclas
 constexpr int CONTENT_FULL = H - STATUS_H;                // sin ellas
@@ -220,4 +255,30 @@ void rotorFollowStep();
 void catDopplerStep();
 
 } // namespace r7
+
+#ifdef R7_SCALED
+#define lv_obj_set_size(o, w, h) (lv_obj_set_size)(o, r7::px(w), r7::px(h))
+#define lv_obj_set_width(o, w) (lv_obj_set_width)(o, r7::px(w))
+#define lv_obj_set_height(o, h) (lv_obj_set_height)(o, r7::px(h))
+#define lv_obj_set_pos(o, x, y) (lv_obj_set_pos)(o, r7::px(x), r7::px(y))
+#define lv_obj_align(o, a, x, y) (lv_obj_align)(o, a, r7::px(x), r7::px(y))
+#define lv_obj_set_ext_click_area(o, v) (lv_obj_set_ext_click_area)(o, r7::px(v))
+#define lv_obj_scroll_to_y(o, y, a) (lv_obj_scroll_to_y)(o, r7::px(y), a)
+#define lv_obj_set_style_radius(o, v, s) (lv_obj_set_style_radius)(o, r7::px(v), s)
+#define lv_obj_set_style_border_width(o, v, s) (lv_obj_set_style_border_width)(o, r7::px(v), s)
+#define lv_obj_set_style_pad_all(o, v, s) (lv_obj_set_style_pad_all)(o, r7::px(v), s)
+#define lv_obj_set_style_pad_hor(o, v, s) (lv_obj_set_style_pad_hor)(o, r7::px(v), s)
+#define lv_obj_set_style_pad_ver(o, v, s) (lv_obj_set_style_pad_ver)(o, r7::px(v), s)
+#define lv_obj_set_style_pad_left(o, v, s) (lv_obj_set_style_pad_left)(o, r7::px(v), s)
+#define lv_obj_set_style_pad_right(o, v, s) (lv_obj_set_style_pad_right)(o, r7::px(v), s)
+#define lv_obj_set_style_pad_top(o, v, s) (lv_obj_set_style_pad_top)(o, r7::px(v), s)
+#define lv_obj_set_style_pad_bottom(o, v, s) (lv_obj_set_style_pad_bottom)(o, r7::px(v), s)
+#define lv_obj_set_style_pad_row(o, v, s) (lv_obj_set_style_pad_row)(o, r7::px(v), s)
+#define lv_obj_set_style_pad_column(o, v, s) (lv_obj_set_style_pad_column)(o, r7::px(v), s)
+#define lv_obj_set_style_margin_top(o, v, s) (lv_obj_set_style_margin_top)(o, r7::px(v), s)
+#define lv_obj_set_style_margin_hor(o, v, s) (lv_obj_set_style_margin_hor)(o, r7::px(v), s)
+#define lv_obj_set_style_min_width(o, v, s) (lv_obj_set_style_min_width)(o, r7::px(v), s)
+#define lv_obj_set_style_max_width(o, v, s) (lv_obj_set_style_max_width)(o, r7::px(v), s)
+#define lv_obj_set_style_text_letter_space(o, v, s) (lv_obj_set_style_text_letter_space)(o, r7::px(v), s)
+#endif
 #endif

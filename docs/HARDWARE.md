@@ -42,6 +42,15 @@ Tiempos del panel (iguales que `rgb_lcd_port.cpp` de Waveshare): `hsync 162 / bp
 3. **Táctil.** Se supone la misma orientación que el panel (sin intercambiar ejes).
 4. **Enlace BLE.** Emparejamiento con PIN por inyección de clave (`onPassKeyEntry`); comprobar con un tracker real.
 
+# Waveshare ESP32-S3-Touch-LCD-7 (sin B, rev 1.2)
+
+Entornos `waveshare_lcd7` y `waveshare_lcd7_v2`. 800×480 RGB, GT911 (0x5D), 16 MB de flash, PSRAM de 8 MB. **No es compatible con la 7B.** Fuente: https://docs.waveshare.com/ESP32-S3-Touch-LCD-7 y `waveshareteam/ESP32-S3-Touch-LCD-7`. Probada el 2026-11-11.
+
+- I2C: SDA 8, SCL 9. Táctil: INT GPIO4, reset por EXIO1.
+- RGB: VSYNC 3, HSYNC 46, DE 5, PCLK 7 (16 MHz, flanco de bajada); datos B3-B7 14, 38, 18, 17, 10; G2-G7 39, 0, 45, 48, 47, 21; R3-R7 1, 2, 42, 41, 40.
+- Expansor CH422G: sin registros. Un byte a la dirección I2C 0x24 fija el modo (0x01 = salidas) y un byte a 0x38 las salidas EXIO0-7. EXIO1 reset del táctil, EXIO2 luz (encendida / apagada, sin regulación), EXIO3 reset del LCD, EXIO4 CS de la microSD, EXIO5 USB (bajo) / CAN (alto).
+- Otros: RS485 en GPIO 15 (TX) / 16 (RX), CAN en 20 / 19 (las patillas del USB nativo), microSD en 11 (MOSI), 12 (SCK), 13 (MISO); `Serial` por el USB-C UART (CH343).
+
 # Waveshare ESP32-S3-Touch-LCD-3.5 / 3.5-C
 
 La 3.5-C es la misma placa con caja y cámara OV5640. Fuente: código de Waveshare (`waveshareteam/ESP32-S3-Touch-LCD-3.5`, ejemplos de ESP-IDF y Arduino).

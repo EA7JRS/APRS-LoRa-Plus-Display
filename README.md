@@ -52,3 +52,6 @@ Desde el instalador web del proyecto (Chrome o Edge, placa por USB): https://ea7
 
 ## 7B v2 (rama `lcd7b-v2`)
 `waveshare_lcd7b_v2`: la misma placa 7B con la interfaz de la app Android (radio de dos bandas, teclas [F], estaciones, mensajes, SAT, caja del rotor y CAT, DX Cluster, AIS, configuración y firmware del tracker). Necesita WiFi para el DX Cluster, el tiempo de internet y el firmware. Sin probar en la placa.
+
+## LCD-7 (rama `lcd7-v2`)
+`waveshare_lcd7`: Waveshare ESP32-S3-Touch-LCD-7 (sin B, 800×480, expansor CH422G), con las pestañas de siempre; probada en la placa. `waveshare_lcd7_v2`: la misma placa con la interfaz de la app Android (la de la 7B v2, a escala); sin probar en la placa. La 7 y la 7B no son compatibles: cada una necesita su firmware.

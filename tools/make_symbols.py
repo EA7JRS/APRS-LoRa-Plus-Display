@@ -8,10 +8,14 @@
 # /Z Microsoft, \K Kenwood) se dejan en blanco.
 #
 #   python3 tools/make_symbols.py
+import sys
 from PIL import Image
 
 SRC = "tools/assets/aprs-symbols/aprs-symbols-48-%d.png"
-CELL, PX, COLS, ROWS = 48, 28, 16, 6
+# sin argumentos: 28 px (7B); "22": 22 px para la LCD-7 (src/aprs_symbols_22.c, aprs_sym22_*)
+PX = int(sys.argv[1]) if len(sys.argv) > 1 else 28
+SUF = "" if PX == 28 else str(PX)
+CELL, COLS, ROWS = 48, 16, 6
 BLANK = {(0, "M"), (0, "Z"), (1, "K")}
 
 out = ["/* Simbolos APRS de aprs.fi (hessu/aprs-symbols, ver tools/assets/aprs-symbols/COPYRIGHT.md). Generado por tools/make_symbols.py. */",
@@ -31,7 +35,7 @@ for sheet in range(3):
         for x in range(dst.size[0]):
             r_, g, b, a = dst.getpixel((x, y))
             data += bytes((b, g, r_, a))
-    name = "aprs_sym_%d" % sheet
+    name = "aprs_sym%s_%d" % (SUF, sheet)
     out.append("static const uint8_t %s_map[] = {" % name)
     for i in range(0, len(data), 48):
         out.append(",".join(str(v) for v in data[i:i + 48]) + ",")
@@ -40,5 +44,6 @@ for sheet in range(3):
     out.append("    .header = {.magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_ARGB8888, .flags = 0, .w = %d, .h = %d, .stride = %d, .reserved_2 = 0}," % (dst.size[0], dst.size[1], dst.size[0] * 4))
     out.append("    .data_size = sizeof(%s_map), .data = %s_map, .reserved = NULL, .reserved_2 = NULL};" % (name, name))
     out.append("")
-open("src/aprs_symbols.c", "w").write("\n".join(out))
-print("src/aprs_symbols.c", sum(len(l) for l in out))
+dest = "src/aprs_symbols%s.c" % ("_" + SUF if SUF else "")
+open(dest, "w").write("\n".join(out))
+print(dest, sum(len(l) for l in out))

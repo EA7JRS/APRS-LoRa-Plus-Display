@@ -12,7 +12,7 @@ jobs:
     build:
         runs-on: ubuntu-latest
         env:
-            BOARDS: waveshare_lcd7b waveshare_lcd7b_v2 waveshare_lcd35 waveshare_lcd28b waveshare_lcd169
+            BOARDS: waveshare_lcd7b waveshare_lcd7b_v2 waveshare_lcd7 waveshare_lcd7_v2 waveshare_lcd35 waveshare_lcd28b waveshare_lcd169
         steps:
             - uses: actions/checkout@v4
 

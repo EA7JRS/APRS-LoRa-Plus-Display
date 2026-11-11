@@ -24,3 +24,8 @@ Pantalla táctil para el tracker en cuatro placas Waveshare (2026-11-09): **ESP3
 
 ## Cómo trabajar
 - No publicar releases ni tocar otros repositorios sin que lo pida Manuel (las etiquetas y releases las crea él).
+
+## LCD-7 (rama `lcd7-v2`, 2026-11-11)
+- **La placa de Manuel es la ESP32-S3-Touch-LCD-7 rev 1.2 (sin B), no la 7B**: 800×480, expansor **CH422G** (sin registros: un byte a la dirección 0x24 = modo, 0x01 salidas; un byte a 0x38 = salidas; el escáner I2C ve 0x20-0x27 y 0x30-0x3F), EXIO1 reset táctil, EXIO2 luz (solo encendida / apagada), EXIO3 reset LCD, EXIO4 CS de la microSD, EXIO5 USB (bajo) / CAN (alto). Mismos pines RGB que la 7B, 16 MHz. Con firmware de la 7B la pantalla queda negra (`el expansor (0x24) no responde`): esa era la causa de la pantalla negra del 2026-11-09. `src/board_lcd7.cpp`, entorno `waveshare_lcd7` (pestañas, disposición L apretada en `ui.cpp`): **probado por Manuel, pantalla, imagen y táctil bien**.
+- `waveshare_lcd7_v2` = LCD-7 + `-DUI_RADIO`: `src/ui7b` sin tocar las pantallas; `r7.h` con `R7_SCALED` (medidas de dibujo 1024×614, `px()` = 25/32, las funciones de LVGL que reciben medidas van envueltas con macros; puntos reales con `(lv_obj_set_size)(...)`; fuentes cambiadas con `#define app_text_18 app_text_14`...; símbolos de 22 px `aprs_symbols_22.c`). Una función de LVGL con medidas que se use por primera vez en `ui7b` hay que añadirla a esa lista. Sin probar en la placa.
+- Puertos libres de la LCD-7: CAN (comparte patillas con el USB nativo), RS485 (GPIO 15/16), I2C (8/9), ADC, microSD (11/12/13). Ideas habladas, sin decidir: caja del rotor en esta placa, pasarela NMEA 2000, microSD para mensajes y estaciones.

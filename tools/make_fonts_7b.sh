@@ -33,4 +33,19 @@ font app_mono_20 share_tech_mono.ttf 20 "$TEXT"
 font app_mono_28 share_tech_mono.ttf 28 "$TEXT"
 font app_mono_40 share_tech_mono.ttf 40 "$ASCII"
 font app_mono_64 share_tech_mono.ttf 64 "$ASCII"
+# LCD-7 (800x480): las mismas a escala 25/32 (r7.h las cambia con R7_SCALED)
+font app_text_14 barlow_regular.ttf 14 "$TEXT" lv_font_montserrat_14
+font app_text_16 barlow_regular.ttf 16 "$TEXT" lv_font_montserrat_16
+font app_text_19 barlow_regular.ttf 19 "$TEXT" lv_font_montserrat_20
+font app_semi_16 barlow_semibold.ttf 16 "$TEXT" lv_font_montserrat_16
+font app_cond_13 barlow_condensed_semibold.ttf 13 "$TEXT" lv_font_montserrat_12
+font app_cond_14 barlow_condensed_semibold.ttf 14 "$TEXT" lv_font_montserrat_14
+font app_bold_14 barlow_condensed_bold.ttf 14 "$TEXT" lv_font_montserrat_14
+font app_bold_17 barlow_condensed_bold.ttf 17 "$TEXT" lv_font_montserrat_16
+font app_bold_20 barlow_condensed_bold.ttf 20 "$TEXT" lv_font_montserrat_20
+font app_bold_27 barlow_condensed_bold.ttf 27 "$TEXT" lv_font_montserrat_20
+font app_mono_16 share_tech_mono.ttf 16 "$TEXT"
+font app_mono_22 share_tech_mono.ttf 22 "$TEXT"
+font app_mono_31 share_tech_mono.ttf 31 "$ASCII"
+font app_mono_50 share_tech_mono.ttf 50 "$ASCII"
 ls -la $OUT/app_*

@@ -20,7 +20,14 @@
 #include <ctime>
 
 extern "C" {
+#ifdef R7_SCALED
+extern const lv_image_dsc_t aprs_sym22_0, aprs_sym22_1, aprs_sym22_2;
+#define aprs_sym_0 aprs_sym22_0
+#define aprs_sym_1 aprs_sym22_1
+#define aprs_sym_2 aprs_sym22_2
+#else
 extern const lv_image_dsc_t aprs_sym_0, aprs_sym_1, aprs_sym_2;
+#endif
 }
 
 namespace r7 {
@@ -172,7 +179,7 @@ void show(lv_obj_t* o, bool on) { if (o && lv_obj_is_hidden(o) == on) lv_obj_set
 void grow(lv_obj_t* o, int g) { lv_obj_set_flex_grow(o, g); }
 void oneLine(lv_obj_t* l) {
     lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_height(l, lv_font_get_line_height(lv_obj_get_style_text_font(l, LV_PART_MAIN)));
+    (lv_obj_set_height)(l, lv_font_get_line_height(lv_obj_get_style_text_font(l, LV_PART_MAIN)));   // puntos reales
 }
 
 void Key::set(const char* l, const char* s) {
@@ -408,7 +415,7 @@ lv_obj_t* symbol(lv_obj_t* p) {
     lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
     for (int i = 0; i < 2; i++) {
         lv_obj_t* im = lv_image_create(b);
-        lv_obj_set_size(im, 28, 28);
+        (lv_obj_set_size)(im, SYM, SYM);
         lv_obj_center(im);
         lv_obj_set_hidden(im, true);
     }
@@ -418,9 +425,9 @@ static void cellOf(lv_obj_t* im, int sh, char c) {
     int i = c - '!';
     lv_image_set_src(im, sheet(sh));
     lv_image_set_inner_align(im, LV_IMAGE_ALIGN_TOP_LEFT);
-    lv_obj_set_size(im, 28, 28);
-    lv_image_set_offset_x(im, -(i % 16) * 28);
-    lv_image_set_offset_y(im, -(i / 16) * 28);
+    (lv_obj_set_size)(im, SYM, SYM);
+    lv_image_set_offset_x(im, -(i % 16) * SYM);
+    lv_image_set_offset_y(im, -(i / 16) * SYM);
     lv_obj_set_hidden(im, false);
 }
 void symbolSet(lv_obj_t* s, char table, char code) {
@@ -767,7 +774,7 @@ static void buildStatus() {
     lv_obj_set_style_radius(m, 10, 0);
     lv_obj_set_style_bg_color(m, C(P->selected), LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(m, LV_OPA_COVER, LV_STATE_PRESSED);
-    lv_obj_t* ml = text(m, LV_SYMBOL_LIST, &lv_font_montserrat_24, P->text);
+    lv_obj_t* ml = text(m, LV_SYMBOL_LIST, &R7_ICON_L, P->text);
     lv_obj_center(ml);
     lv_obj_add_event_cb(m, onMenu, LV_EVENT_CLICKED, nullptr);
     stCall = text(statusBar, "NOCALL", &app_bold_26, P->text);
@@ -929,7 +936,11 @@ void openSideMenu() {
     lv_obj_set_width(hc, LV_SIZE_CONTENT);
     lv_obj_t* t = text(hc, "APRS LoRa+", &app_bold_26, P->text);
     (void)t;
+#ifdef R7_SCALED
+    text(hc, "Display " DISPLAY_VERSION " \xC2\xB7 LCD-7 v2", &app_text_18, P->muted);
+#else
     text(hc, "Display " DISPLAY_VERSION " \xC2\xB7 7B v2", &app_text_18, P->muted);
+#endif
     const Scr s = top();
     char b[24];
     lv_obj_set_style_margin_top(section(p, "OPERATE"), 12, 0);
@@ -1050,7 +1061,7 @@ static void showSplash(lv_obj_t* mainScr) {
     lv_label_set_text(ver, "Display " DISPLAY_VERSION);
     lv_obj_set_style_text_font(ver, &app_text_20, 0);
     lv_obj_set_style_text_color(ver, lv_color_hex(0x28B5E1), 0);
-    lv_obj_align(ver, LV_ALIGN_CENTER, 0, -18 + img_splash.header.h / 2 + 18);
+    (lv_obj_align)(ver, LV_ALIGN_CENTER, 0, px(-18) + img_splash.header.h / 2 + px(18));
     lv_screen_load(sp);
     lv_obj_fade_in(img, 700, 0);
     lv_obj_fade_in(ver, 700, 300);
@@ -1085,7 +1096,7 @@ void beginRadio(proto::Model* model, void (*onTheme)(int)) {
     lv_obj_set_style_bg_color(kb, C(P->key), LV_PART_ITEMS);
     lv_obj_set_style_text_color(kb, C(P->text), LV_PART_ITEMS);
     lv_obj_set_style_border_color(kb, C(P->keyBorder), LV_PART_ITEMS);
-    lv_obj_set_style_text_font(kb, &lv_font_montserrat_20, LV_PART_ITEMS);
+    lv_obj_set_style_text_font(kb, &R7_ICON_M, LV_PART_ITEMS);
     lv_obj_add_event_cb(kb, kbEvent, LV_EVENT_ALL, nullptr);
     lv_obj_set_hidden(kb, true);
 
