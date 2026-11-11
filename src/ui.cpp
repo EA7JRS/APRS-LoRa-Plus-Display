@@ -718,6 +718,32 @@ static void buildSet() {
     lblBack = label(br, "");
     button(br, LV_SYMBOL_PLUS, onBack, (void*)(intptr_t)10, L.btnH * 2);
     showBacklight();
+
+    // About: version, copyright, proyecto y QR de donativos (PayPal.me de EA7JRS), como el About de las WebUI
+    lv_obj_t* ac = card(tabSet, "About");
+    lv_obj_t* ar = plain(ac);                                   // QR a la izquierda y el texto al lado (pequena: debajo)
+    lv_obj_set_flex_flow(ar, L.sz == Size::S ? LV_FLEX_FLOW_COLUMN : LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(ar, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_gap(ar, L.pad * 2, 0);
+    const int qs = L.sz == Size::L ? 150 : L.sz == Size::M ? 112 : 96;
+    lv_obj_t* qr = lv_qrcode_create(ar);
+    lv_qrcode_set_size(qr, qs);
+    lv_qrcode_set_dark_color(qr, lv_color_black());
+    lv_qrcode_set_light_color(qr, lv_color_white());
+    static const char kDonate[] = "https://paypal.me/ea7jrs";
+    lv_qrcode_update(qr, kDonate, sizeof kDonate - 1);
+    lv_obj_set_style_border_color(qr, lv_color_white(), 0);       // margen blanco: lo piden los lectores de QR
+    lv_obj_set_style_border_width(qr, L.sz == Size::S ? 4 : 6, 0);
+    lv_obj_t* at = plain(ar);
+    if (L.sz != Size::S) lv_obj_set_flex_grow(at, 1);
+    lv_obj_set_flex_flow(at, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_gap(at, 2, 0);
+    wrapLabel(at, "APRS LoRa+ Display " DISPLAY_VERSION);
+    wrapLabel(at, "\xC2\xA9 2026 Manuel - EA7JRS");
+    setColor(wrapLabel(at, "github.com/EA7JRS/APRS-LoRa-Plus"), P->acc);
+    setColor(wrapLabel(at, "Donate: paypal.me/ea7jrs"), P->acc);
+    lv_obj_add_style(wrapLabel(at, "Scan the QR code to donate"), &stKey, 0);
+    lv_obj_add_style(wrapLabel(at, "GPL-3.0-or-later"), &stKey, 0);
 }
 
 // Cabecera roja como la del rotor: icono, "APRS LoRa+" en negrita y debajo "Display <version>"; a la derecha el enlace BLE
