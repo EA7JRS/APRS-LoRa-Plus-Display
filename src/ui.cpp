@@ -746,7 +746,7 @@ static void buildSet() {
     lv_obj_add_style(wrapLabel(at, "GPL-3.0-or-later"), &stKey, 0);
 }
 
-// Cabecera roja como la del rotor: icono, "APRS LoRa+" en negrita y debajo "Display <version>"; a la derecha el enlace BLE
+// Cabecera roja como la del rotor: icono, "APRS LoRa+" en negrita y debajo "Display <version>" (solo en la 7"); a la derecha el enlace BLE
 static void buildHeader() {
     lv_obj_t* top = lv_obj_create(scr);
     lv_obj_remove_style_all(top);
@@ -770,12 +770,16 @@ static void buildHeader() {
     const int tx = L.iconPx + L.pad + (L.sz == Size::L ? 6 : 0);
     lv_obj_t* title = label(top, "APRS LoRa+", L.fTitle);
     lv_obj_set_style_text_color(title, C(P->hdrTitle), 0);
-    lv_obj_t* sub = label(top, "Display " DISPLAY_VERSION, L.fSub);
-    lv_obj_set_style_text_color(sub, C(P->sub), 0);
     const int th = lv_font_get_line_height(L.fTitle), sh = lv_font_get_line_height(L.fSub);
     const int y0 = (L.topH - th - sh) / 2;
-    lv_obj_set_pos(title, tx, y0 - 1);
-    lv_obj_set_pos(sub, tx, y0 + th - 3);
+    if (L.sz == Size::L) {                                      // 7": debajo "Display <version>"
+        lv_obj_t* sub = label(top, "Display " DISPLAY_VERSION, L.fSub);
+        lv_obj_set_style_text_color(sub, C(P->sub), 0);
+        lv_obj_set_pos(title, tx, y0 - 1);
+        lv_obj_set_pos(sub, tx, y0 + th - 3);
+    } else {                                                    // menos de 7": solo el titulo (la version esta en Settings > About)
+        lv_obj_set_pos(title, tx, (L.topH - th) / 2);
+    }
 
     topLink1 = label(top, "", L.fSub);                          // nombre del tracker (o estado)
     topLink2 = label(top, "BLE", L.fSub);                       // "BLE ●" enlazado
