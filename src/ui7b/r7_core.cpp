@@ -13,6 +13,7 @@
 #include "settings.h"
 #include "tracker_link.h"
 #include "ui_assets.h"
+#include <src/lvgl_private.h>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
@@ -436,6 +437,33 @@ void symbolSet(lv_obj_t* s, char table, char code) {
     cellOf(base, table == '/' ? 0 : 1, code);
     bool overlay = table != '/' && table != '\\' && ((table >= '0' && table <= '9') || (table >= 'A' && table <= 'Z') || (table >= 'a' && table <= 'j'));
     if (overlay) cellOf(ov, 2, table); else lv_obj_set_hidden(ov, true);
+}
+void drawSymbol(lv_layer_t* layer, int x, int y, char table, char code) {
+    lv_draw_rect_dsc_t bg;
+    lv_draw_rect_dsc_init(&bg);
+    bg.bg_color = C(P->symbolBg); bg.radius = 6; bg.border_color = C(P->bg); bg.border_width = 1;
+    const int hs = SYM / 2;
+    lv_area_t cell = {x - hs, y - hs, x - hs + SYM - 1, y - hs + SYM - 1};
+    lv_area_t ba = {cell.x1 - 2, cell.y1 - 2, cell.x2 + 2, cell.y2 + 2};
+    lv_draw_rect(layer, &bg, &ba);
+    if (code < '!' || code > '~') return;
+    const lv_area_t saved = layer->_clip_area;
+    lv_area_t clip;
+    if (!lv_area_intersect(&clip, &saved, &cell)) return;
+    layer->_clip_area = clip;                                    // de la hoja solo se ve la casilla del simbolo
+    auto put = [&](int sh, char c) {
+        const int i = c - '!';
+        const lv_image_dsc_t* img = sheet(sh);
+        lv_draw_image_dsc_t d;
+        lv_draw_image_dsc_init(&d);
+        d.src = img;
+        lv_area_t ia = {cell.x1 - (i % 16) * SYM, cell.y1 - (i / 16) * SYM, 0, 0};
+        ia.x2 = ia.x1 + img->header.w - 1; ia.y2 = ia.y1 + img->header.h - 1;
+        lv_draw_image(layer, &d, &ia);
+    };
+    put(table == '/' ? 0 : 1, code);
+    if (table != '/' && table != '\\' && ((table >= '0' && table <= '9') || (table >= 'A' && table <= 'Z') || (table >= 'a' && table <= 'j'))) put(2, table);
+    layer->_clip_area = saved;
 }
 const char* symbolName(char table, char code) {
     struct N { char c; const char* n; };

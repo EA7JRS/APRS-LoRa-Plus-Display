@@ -32,6 +32,10 @@ struct Settings {
     std::string owmKey;
     int wxMinutes = 15;
     bool wxToTracker = true, wxToRotor = true;
+    // mapa: 0 OpenStreetMap, 1 IGN topografico, 2 IGN ortofoto, 3 oscuro, 4 Esri (con la clave ArcGIS del usuario), 5 radar sin teselas
+    int mapLayer = 0, mapZoom = 12;
+    bool mapSea = false;                    // marcas nauticas de OpenSeaMap encima
+    std::string arcgisKey;
 };
 
 Settings& get();

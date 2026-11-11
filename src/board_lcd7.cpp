@@ -105,6 +105,8 @@ void draw(int x1, int y1, int x2, int y2, void* px) {
 }
 int touch(int& x, int& y) { return gt911Read(gtAddr, x, y, W, H); }
 
+bool sdSelect(bool on) { return ioxSet(EXIO_SD_CS, !on); }       // CS activo a nivel bajo
+
 void setBacklight(int percent) { ioxSet(EXIO_DISP, percent > 0); }   // esta placa no regula el brillo: encendida o apagada
 
 }

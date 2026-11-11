@@ -11,6 +11,10 @@
 #include "rotor_proto.h"
 #include "settings.h"
 #include "tracker_link.h"
+#include "maptiles.h"
+#include "board.h"
+#include <SD.h>
+#include <SPI.h>
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
@@ -403,6 +407,88 @@ static void jobsTask(void*) {
         if (wxReq) { wxReq = false; doWeather(); wxLast = millis(); }
         delay(200);
     }
+}
+
+// ------------------------------------------------------------------ mapa de teselas
+// La microSD de las placas de 7" va por SPI con el CS en el expansor: se deja seleccionada siempre (es lo unico que hay en
+// ese bus) y a la libreria SD se le da un pin que no se usa. Las teselas se guardan tal como llegan en /maps/<capa>/z/x/y.bin.
+#ifndef SD_SCK
+#define SD_SCK 12
+#define SD_MISO 13
+#define SD_MOSI 11
+#endif
+#ifndef SD_DUMMY_CS
+#define SD_DUMMY_CS 6                 // el pin del conector de sensor: SD lo mueve como si fuera el CS
+#endif
+static bool sdReady = false, mapStarted = false;
+bool sdOk() { return sdReady; }
+
+struct VecStream : public Stream {
+    std::vector<uint8_t>& v;
+    size_t cap;
+    explicit VecStream(std::vector<uint8_t>& d, size_t c) : v(d), cap(c) {}
+    size_t write(uint8_t c) override { if (v.size() >= cap) return 0; v.push_back(c); return 1; }
+    size_t write(const uint8_t* b, size_t n) override { if (v.size() + n > cap) return 0; v.insert(v.end(), b, b + n); return n; }
+    int available() override { return 0; }
+    int read() override { return -1; }
+    int peek() override { return -1; }
+    void flush() override {}
+};
+static int tileHttp(const std::string& url, std::vector<uint8_t>& out) {
+    // una conexion por servidor que se queda abierta: el saludo TLS de cada tesela costaria mas que la tesela
+    static NetworkClientSecure tls[2];
+    static HTTPClient http[2];
+    static bool init = false;
+    if (!init) { for (int i = 0; i < 2; i++) { tls[i].setInsecure(); http[i].setReuse(true); http[i].setTimeout(8000); http[i].setUserAgent("APRS-LoRa-Plus-Display/" DISPLAY_VERSION " (EA7JRS)"); } init = true; }
+    const int i = url.find("openseamap") != std::string::npos ? 1 : 0;
+    out.clear();
+    if (!http[i].begin(tls[i], url.c_str())) return 0;
+    int code = http[i].GET();
+    if (code == 200) {
+        VecStream vs(out, 400000);
+        if (http[i].writeToStream(&vs) < 0) code = 0;
+    }
+    http[i].end();
+    return code < 0 ? 0 : code;
+}
+static bool tileLoad(const std::string& path, std::vector<uint8_t>& out) {
+    if (!sdReady) return false;
+    File f = SD.open(path.c_str(), FILE_READ);
+    if (!f) return false;
+    size_t n = f.size();
+    out.resize(n);
+    bool ok = n == 0 || f.read(out.data(), n) == n;
+    f.close();
+    return ok;
+}
+static void tileSave(const std::string& path, const uint8_t* data, size_t n) {
+    if (!sdReady) return;
+    for (size_t i = 1; i < path.size(); i++)                    // las carpetas, una a una
+        if (path[i] == '/') { std::string d = path.substr(0, i); if (!SD.exists(d.c_str())) SD.mkdir(d.c_str()); }
+    File f = SD.open(path.c_str(), FILE_WRITE);
+    if (!f) return;
+    if (n) f.write(data, n);
+    f.close();
+}
+static void tilesTask(void*) {
+    for (;;) delay(mapt::work() ? 2 : 120);
+}
+void mapBegin() {
+    if (mapStarted) return;
+    mapStarted = true;
+    board::sdSelect(true);
+    SPI.begin(SD_SCK, SD_MISO, SD_MOSI, -1);
+    sdReady = SD.begin(SD_DUMMY_CS, SPI, 20000000) && SD.cardType() != CARD_NONE;
+    Serial.printf("[map] microSD: %s\n", sdReady ? "lista, teselas en /maps" : "no hay (teselas solo en memoria)");
+    mapt::Io io;
+    io.alloc = [](size_t n) -> void* { return heap_caps_malloc(n, MALLOC_CAP_SPIRAM); };
+    io.online = []() -> bool { return online(); };
+    io.http = tileHttp;
+    io.load = tileLoad;
+    io.save = tileSave;
+    io.ms = []() -> uint32_t { return millis(); };
+    mapt::begin(io, 24, cfg::get().arcgisKey);
+    xTaskCreatePinnedToCore(tilesTask, "tiles", 16384, nullptr, 1, nullptr, 0);
 }
 
 // ------------------------------------------------------------------ arranque y bucle

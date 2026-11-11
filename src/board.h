@@ -62,6 +62,9 @@ void draw(int x1, int y1, int x2, int y2, void* pixels);
 // Tactil: 1 = dedo puesto (x, y en pixeles de la pantalla), 0 = soltado, -1 = sin dato nuevo.
 int touch(int& x, int& y);
 
+// microSD de las placas de 7" (SPI: SCK 12, MISO 13, MOSI 11): su CS cuelga del expansor. true = seleccionada.
+bool sdSelect(bool on);
+
 // Luz de fondo, 0..100 (0 = apagada).
 void setBacklight(int percent);
 }

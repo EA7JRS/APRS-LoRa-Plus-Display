@@ -3,11 +3,12 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * Estaciones que oye el tracker (StationScreens.kt y WxScreen.kt de la app): S.LIST con orden y filtros, detalle con brujula,
- * meteorologia, mensaje, QSY y rotor; mapa de radar alrededor de la posicion propia (sin teselas) y estaciones meteorologicas.
+ * meteorologia, mensaje, QSY y rotor; mapa (teselas de OpenStreetMap, IGN, Esri y OpenSeaMap, o radar alrededor de la posicion propia) y estaciones meteorologicas.
  */
 #ifdef UI_RADIO
 #include "r7.h"
 #include "net.h"
+#include "maptiles.h"
 #include "settings.h"
 #include <algorithm>
 #include <cmath>
@@ -264,7 +265,11 @@ static void refreshStation() {
 }
 static void enterStation() { if (linked()) send(proto::cmdHeard(0, 12)); }
 
-// ------------------------------------------------------------------ mapa de radar
+// ------------------------------------------------------------------ mapa
+// Con teselas (maptiles.h: OpenStreetMap, IGN, oscuro, Esri con la clave del usuario, y OpenSeaMap encima) o, sin ellas,
+// el radar alrededor del tracker. Encima: estaciones con su simbolo, barcos AIS, posicion propia y haz del rotor.
+// El dibujo va en puntos reales de la pantalla (no pasa por px()).
+constexpr int RADAR = mapt::LAYER_COUNT;      // cfg.mapLayer: 0..4 capas de teselas, 5 radar
 static lv_obj_t* mapObj;
 static lv_obj_t *mRangeC[5], *mInfo;
 static int mRange = 0;                      // 0 auto
@@ -274,7 +279,7 @@ struct MapPt { int x, y, idx; };
 static std::vector<MapPt> mPts;
 
 static void onRange(lv_event_t* e) { mRange = (int)(intptr_t)lv_event_get_user_data(e); requestRefresh(); }
-static void mapDraw(lv_event_t* e) {
+static void radarDraw(lv_event_t* e) {
     lv_obj_t* o = lv_event_get_target_obj(e);
     lv_layer_t* layer = lv_event_get_layer(e);
     lv_area_t a;
@@ -339,42 +344,7 @@ static void mapDraw(lv_event_t* e) {
     pt(0, 16, tr.p[0]); pt(2.4f, 11, tr.p[1]); pt(-2.4f, 11, tr.p[2]);
     lv_draw_triangle(layer, &tr);
 }
-static void mapClick(lv_event_t* e) {
-    lv_point_t p;
-    lv_indev_get_point(lv_indev_active(), &p);
-    int best = -1, bd = 40 * 40;
-    for (const MapPt& m : mPts) { int d = (m.x - p.x) * (m.x - p.x) + (m.y - p.y) * (m.y - p.y); if (d < bd) { bd = d; best = m.idx; } }
-    (void)e;
-    if (best >= 0) go(STATION, M->heard[best].call);
-}
-static void buildMap(lv_obj_t* root) {
-    lv_obj_t* tr;
-    header(root, "Map \xC2\xB7 radar", &tr);
-    static const char* rn[] = {"AUTO", "5 km", "20 km", "50 km", "200 km"};
-    for (int i = 0; i < 5; i++) mRangeC[i] = chip(tr, rn[i], i == mRange, onRange, (void*)(intptr_t)i);
-    lv_obj_t* body = row(root, GAP);
-    lv_obj_set_flex_grow(body, 1);
-    lv_obj_set_height(body, 10);
-    lv_obj_t* mp = panel(body, 0);
-    lv_obj_set_height(mp, LV_PCT(100));
-    lv_obj_set_flex_grow(mp, 1);
-    lv_obj_set_width(mp, 10);
-    mapObj = box(mp);
-    lv_obj_set_size(mapObj, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_clickable(mapObj, true);
-    lv_obj_add_event_cb(mapObj, mapDraw, LV_EVENT_DRAW_MAIN, nullptr);
-    lv_obj_add_event_cb(mapObj, mapClick, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t* ip = panel(body, 14);
-    lv_obj_set_size(ip, 240, LV_PCT(100));
-    section(ip, "LEGEND");
-    text(ip, "\xE2\x80\xA2 mobile", &app_text_20, P->green);
-    text(ip, "\xE2\x80\xA2 digi / iGate", &app_text_20, P->cyan);
-    text(ip, "\xE2\x80\xA2 weather", &app_text_20, P->amber);
-    text(ip, "\xE2\x80\xA2 fixed", &app_text_20, P->text);
-    text(ip, "\xE2\x80\x94 rotor", &app_text_20, P->cyan);
-    mInfo = wrap(ip, "", &app_text_18, P->muted);
-}
-static void refreshMap() {
+static void refreshRadar() {
     for (int i = 0; i < 5; i++) chipSet(mRangeC[i], i == mRange);
     double la, lo;
     mPts.clear();
@@ -400,6 +370,264 @@ static void refreshMap() {
     }
     setTextf(mInfo, "%d on the map%s. Touch a station for its details. Without map tiles: a radar around the tracker.", (int)mPts.size(),
              out ? (", " + std::to_string(out) + " farther").c_str() : "");
+    lv_obj_invalidate(mapObj);
+}
+
+
+// ---- teselas ----
+static lv_obj_t *mLayerC, *mSeaC, *mZoomOut, *mZoomIn, *mMyC, *mLegend;
+static double mLat = 40.0, mLon = -3.7;       // centro
+static bool mFollow = true, mCentered = false;
+static int mDrag = 0;
+static uint32_t mSeq = 0;
+static bool tiles() { return cfg::get().mapLayer != RADAR; }
+static int zoomMax() { return mapt::layer(cfg::get().mapLayer).maxZoom; }
+
+static int textW(const char* t, const lv_font_t* f) {
+    int w = 0;
+    for (const char* c = t; *c; c++) w += lv_font_get_glyph_width(f, (uint8_t)*c, (uint8_t)c[1]);
+    return w;
+}
+// rotulo con fondo, para que se lea encima del mapa
+static void tag(lv_layer_t* layer, int x, int y, const char* t, const lv_font_t* f, uint32_t color) {
+    const int w = textW(t, f), h = lv_font_get_line_height(f);
+    lv_draw_rect_dsc_t d;
+    lv_draw_rect_dsc_init(&d);
+    d.bg_color = C(P->bg); d.bg_opa = LV_OPA_70; d.radius = 4;
+    lv_area_t ba = {x - 3, y - 1, x + w + 3, y + h};
+    lv_draw_rect(layer, &d, &ba);
+    lv_draw_label_dsc_t td;
+    lv_draw_label_dsc_init(&td);
+    td.font = f; td.color = C(color); td.text = t; td.text_local = 1;
+    lv_area_t la = {x, y, x + w + 8, y + h};
+    lv_draw_label(layer, &td, &la);
+}
+
+static void tilesDraw(lv_event_t* e) {
+    lv_obj_t* o = lv_event_get_target_obj(e);
+    lv_layer_t* layer = lv_event_get_layer(e);
+    lv_area_t a;
+    lv_obj_get_coords(o, &a);
+    const int w = lv_area_get_width(&a), h = lv_area_get_height(&a);
+    const cfg::Settings& st = cfg::get();
+    const int z = st.mapZoom, n = 1 << z;
+    double cx, cy;
+    mapt::toWorld(mLat, mLon, z, cx, cy);
+    const double x0 = cx - w / 2.0, y0 = cy - h / 2.0;
+    lv_draw_rect_dsc_t miss;
+    lv_draw_rect_dsc_init(&miss);
+    miss.bg_color = C(P->subPanel); miss.border_color = C(P->subBorder); miss.border_width = 1;
+    for (int ty = (int)floor(y0 / mapt::TILE); ty <= (int)floor((y0 + h - 1) / mapt::TILE); ty++)
+        for (int tx = (int)floor(x0 / mapt::TILE); tx <= (int)floor((x0 + w - 1) / mapt::TILE); tx++) {
+            const int sx = a.x1 + (int)floor(tx * (double)mapt::TILE - x0), sy = a.y1 + (int)floor(ty * (double)mapt::TILE - y0);
+            lv_area_t ta = {sx, sy, sx + mapt::TILE - 1, sy + mapt::TILE - 1};
+            const lv_image_dsc_t* img = nullptr;
+            if (ty >= 0 && ty < n) {
+                mapt::Key k;
+                k.layer = (uint8_t)st.mapLayer; k.z = (uint8_t)z; k.sea = st.mapSea; k.x = (uint32_t)(((tx % n) + n) % n); k.y = (uint32_t)ty;
+                img = mapt::get(k);
+            }
+            if (img) {
+                lv_draw_image_dsc_t id;
+                lv_draw_image_dsc_init(&id);
+                id.src = img;
+                lv_draw_image(layer, &id, &ta);
+            } else lv_draw_rect(layer, &miss, &ta);
+        }
+    auto project = [&](double la, double lo, int& x, int& y) {
+        double wx, wy;
+        mapt::toWorld(la, lo, z, wx, wy);
+        double dx = wx - cx;
+        const double world = mapt::TILE * (double)n;
+        if (dx > world / 2) dx -= world; else if (dx < -world / 2) dx += world;
+        x = a.x1 + w / 2 + (int)lround(dx); y = a.y1 + h / 2 + (int)lround(wy - cy);
+        return x > a.x1 - 40 && x < a.x2 + 40 && y > a.y1 - 40 && y < a.y2 + 40;
+    };
+    char b[48];
+    double ola, olo;
+    const bool own = ownPos(ola, olo);
+    int ox = 0, oy = 0;
+    const bool ownIn = own && project(ola, olo, ox, oy);
+    // haz del rotor
+    if (own && RM.pos.ok && net::rotorState() == net::Link::Linked) {
+        project(ola, olo, ox, oy);
+        const float t = RM.pos.az * (float)M_PI / 180, len = (float)(w > h ? w : h);
+        lv_draw_line_dsc_t ld;
+        lv_draw_line_dsc_init(&ld);
+        ld.color = C(P->cyan); ld.width = 3; ld.opa = LV_OPA_80;
+        ld.p1.x = ox; ld.p1.y = oy; ld.p2.x = ox + len * sinf(t); ld.p2.y = oy - len * cosf(t);
+        lv_draw_line(layer, &ld);
+    }
+    // barcos AIS
+    for (const proto::Vessel& v : M->ais) {
+        int x, y;
+        if (!v.hasPos || !project(v.lat, v.lon, x, y)) continue;
+        lv_draw_triangle_dsc_t tr;
+        lv_draw_triangle_dsc_init(&tr);
+        tr.color = C(v.danger ? P->red : P->amber);
+        const float t = (v.cog >= 0 ? v.cog : v.hdg >= 0 ? (float)v.hdg : 0) * (float)M_PI / 180;
+        auto pt = [&](float ang, float r, lv_point_precise_t& q) { q.x = x + r * sinf(t + ang); q.y = y - r * cosf(t + ang); };
+        pt(0, 13, tr.p[0]); pt(2.5f, 9, tr.p[1]); pt(-2.5f, 9, tr.p[2]);
+        lv_draw_triangle(layer, &tr);
+        if (!v.name.empty()) tag(layer, x + 12, y - 8, v.name.c_str(), &app_cond_16, v.danger ? P->red : P->amber);
+    }
+    // estaciones
+    mPts.clear();
+    for (size_t i = 0; i < M->heard.size(); i++) {
+        const proto::Heard& hd = M->heard[i];
+        int x, y;
+        if (!hd.hasPos || !project(hd.lat, hd.lon, x, y)) continue;
+        mPts.push_back({x, y, (int)i});
+        drawSymbol(layer, x, y, hd.symTable(), hd.symCode());
+        tag(layer, x + SYM / 2 + 6, y - SYM / 2, hd.call.c_str(), &app_bold_18, P->text);
+        if (hd.wx.ok && hd.wx.t > -900) {
+            snprintf(b, sizeof b, "%.0f\xC2\xB0", hd.wx.t);
+            tag(layer, x + SYM / 2 + 6, y - SYM / 2 + lv_font_get_line_height(&app_bold_18) + 1, b, &app_cond_16, tempColor(hd.wx.t));
+        }
+    }
+    // posicion propia
+    if (ownIn) {
+        lv_draw_rect_dsc_t d;
+        lv_draw_rect_dsc_init(&d);
+        d.bg_color = C(P->bg); d.radius = LV_RADIUS_CIRCLE;
+        lv_area_t ca = {ox - 13, oy - 13, ox + 13, oy + 13};
+        lv_draw_rect(layer, &d, &ca);
+        lv_draw_triangle_dsc_t tr;
+        lv_draw_triangle_dsc_init(&tr);
+        tr.color = C(P->green);
+        const float t = (M->gnss.ok ? M->gnss.crs : 0) * (float)M_PI / 180;
+        auto pt = [&](float ang, float r, lv_point_precise_t& q) { q.x = ox + r * sinf(t + ang); q.y = oy - r * cosf(t + ang); };
+        pt(0, 12, tr.p[0]); pt(2.4f, 9, tr.p[1]); pt(-2.4f, 9, tr.p[2]);
+        lv_draw_triangle(layer, &tr);
+    }
+    // escala
+    const double mpp = mapt::metersPerPixel(mLat, z);
+    static const double NICE[] = {50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000, 2000000};
+    double len = NICE[0];
+    for (double v : NICE) if (v / mpp <= w / 5.0) len = v;
+    const int bar = (int)(len / mpp);
+    lv_draw_rect_dsc_t sb;
+    lv_draw_rect_dsc_init(&sb);
+    sb.bg_color = C(P->text); sb.border_color = C(P->bg); sb.border_width = 1;
+    lv_area_t sa = {a.x1 + 10, a.y2 - 12, a.x1 + 10 + bar, a.y2 - 8};
+    lv_draw_rect(layer, &sb, &sa);
+    if (len >= 1000) snprintf(b, sizeof b, "%.0f km", len / 1000); else snprintf(b, sizeof b, "%.0f m", len);
+    tag(layer, a.x1 + 10, a.y2 - 14 - lv_font_get_line_height(&app_cond_16), b, &app_cond_16, P->text);
+    // de quien es el mapa y como va la descarga
+    std::string at = mapt::layer(st.mapLayer).attribution;
+    if (st.mapSea) at += " \xC2\xB7 OpenSeaMap";
+    tag(layer, a.x2 - textW(at.c_str(), &app_cond_16) - 8, a.y2 - lv_font_get_line_height(&app_cond_16) - 4, at.c_str(), &app_cond_16, P->text);
+    const int pend = mapt::pending();
+    const char* why = st.mapLayer == mapt::ESRI && st.arcgisKey.empty() ? "Esri needs your ArcGIS key (Settings)"
+        : !net::wifi().connected ? (net::sdOk() ? "No WiFi: only the tiles saved on the microSD" : "No WiFi and no microSD: no tiles") : nullptr;
+    if (why) tag(layer, a.x1 + 10, a.y1 + 8, why, &app_cond_18, P->amber);
+    else if (pend) { snprintf(b, sizeof b, "loading %d", pend); tag(layer, a.x1 + 10, a.y1 + 8, b, &app_cond_16, P->muted); }
+    snprintf(b, sizeof b, "z%d", z);
+    tag(layer, a.x2 - textW(b, &app_cond_16) - 8, a.y1 + 8, b, &app_cond_16, P->muted);
+}
+
+static void mapDraw(lv_event_t* e) { if (tiles()) tilesDraw(e); else radarDraw(e); }
+static void mapPress(lv_event_t* e) {
+    if (lv_event_get_code(e) == LV_EVENT_PRESSED) { mDrag = 0; return; }
+    if (!tiles()) return;
+    lv_point_t v;
+    lv_indev_get_vect(lv_indev_active(), &v);
+    if (!v.x && !v.y) return;
+    mDrag += abs(v.x) + abs(v.y);
+    if (mDrag < 8) return;                                      // un toque no mueve el mapa
+    double cx, cy;
+    const int z = cfg::get().mapZoom;
+    mapt::toWorld(mLat, mLon, z, cx, cy);
+    mapt::toLatLon(cx - v.x, cy - v.y, z, mLat, mLon);
+    if (mLon < -180) mLon += 360; else if (mLon > 180) mLon -= 360;
+    mFollow = false;
+    chipSet(mMyC, false);
+    lv_obj_invalidate(mapObj);
+}
+static void mapClick(lv_event_t* e) {
+    (void)e;
+    if (mDrag >= 8) return;
+    lv_point_t p;
+    lv_indev_get_point(lv_indev_active(), &p);
+    int best = -1, bd = 40 * 40;
+    for (const MapPt& m : mPts) { int d = (m.x - p.x) * (m.x - p.x) + (m.y - p.y) * (m.y - p.y); if (d < bd) { bd = d; best = m.idx; } }
+    if (best >= 0) go(STATION, M->heard[best].call);
+}
+static void onLayer(lv_event_t*) {
+    cfg::Settings& st = cfg::get();
+    st.mapLayer = (st.mapLayer + 1) % (RADAR + 1);
+    if (st.mapLayer == mapt::ESRI && st.arcgisKey.empty()) st.mapLayer = RADAR;      // sin clave no hay Esri
+    if (tiles() && st.mapZoom > zoomMax()) st.mapZoom = zoomMax();
+    cfg::save();
+    mapt::forget();
+    if (tiles()) net::mapBegin();
+    requestRefresh();
+}
+static void onSea(lv_event_t*) { cfg::get().mapSea = !cfg::get().mapSea; cfg::save(); mapt::forget(); requestRefresh(); }
+static void onZoom(lv_event_t* e) {
+    cfg::Settings& st = cfg::get();
+    int z = st.mapZoom + (int)(intptr_t)lv_event_get_user_data(e);
+    z = z < 3 ? 3 : z > zoomMax() ? zoomMax() : z;
+    if (z == st.mapZoom) return;
+    st.mapZoom = z;
+    cfg::save();
+    mapt::forget();
+    requestRefresh();
+}
+static void onMy(lv_event_t*) { mFollow = true; requestRefresh(); }
+static void mapTimer(lv_timer_t*) {
+    if (top() != MAP || !tiles() || mapt::seq() == mSeq) return;
+    mSeq = mapt::seq();
+    lv_obj_invalidate(mapObj);
+}
+static void enterMap() { enterSlist(); if (tiles()) net::mapBegin(); }
+static void buildMap(lv_obj_t* root) {
+    lv_obj_t* tr;
+    header(root, "Map", &tr);
+    static const char* rn[] = {"AUTO", "5 km", "20 km", "50 km", "200 km"};
+    for (int i = 0; i < 5; i++) mRangeC[i] = chip(tr, rn[i], i == mRange, onRange, (void*)(intptr_t)i);
+    mSeaC = chip(tr, "SEA", false, onSea, nullptr, 40, P->cyan);
+    mZoomOut = chip(tr, " - ", false, onZoom, (void*)(intptr_t)-1);
+    mZoomIn = chip(tr, " + ", false, onZoom, (void*)(intptr_t)1);
+    mMyC = chip(tr, "MY", true, onMy, nullptr, 40, P->green);
+    mLayerC = chip(tr, "OSM", true, onLayer, nullptr, 40, P->amber);
+    lv_obj_t* body = row(root, GAP);
+    lv_obj_set_flex_grow(body, 1);
+    lv_obj_set_height(body, 10);
+    lv_obj_t* mp = panel(body, 0);
+    lv_obj_set_height(mp, LV_PCT(100));
+    lv_obj_set_flex_grow(mp, 1);
+    lv_obj_set_width(mp, 10);
+    mapObj = box(mp);
+    lv_obj_set_size(mapObj, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_clickable(mapObj, true);
+    lv_obj_add_event_cb(mapObj, mapDraw, LV_EVENT_DRAW_MAIN, nullptr);
+    lv_obj_add_event_cb(mapObj, mapClick, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(mapObj, mapPress, LV_EVENT_PRESSED, nullptr);
+    lv_obj_add_event_cb(mapObj, mapPress, LV_EVENT_PRESSING, nullptr);
+    lv_obj_t* ip = panel(body, 14);
+    mLegend = ip;
+    lv_obj_set_size(ip, 240, LV_PCT(100));
+    section(ip, "LEGEND");
+    text(ip, "\xE2\x80\xA2 mobile", &app_text_20, P->green);
+    text(ip, "\xE2\x80\xA2 digi / iGate", &app_text_20, P->cyan);
+    text(ip, "\xE2\x80\xA2 weather", &app_text_20, P->amber);
+    text(ip, "\xE2\x80\xA2 fixed", &app_text_20, P->text);
+    text(ip, "\xE2\x80\x94 rotor", &app_text_20, P->cyan);
+    mInfo = wrap(ip, "", &app_text_18, P->muted);
+    lv_timer_create(mapTimer, 250, nullptr);
+}
+static void refreshMap() {
+    const cfg::Settings& st = cfg::get();
+    const bool t = tiles();
+    for (int i = 0; i < 5; i++) show(mRangeC[i], !t);
+    show(mSeaC, t); show(mZoomOut, t); show(mZoomIn, t); show(mMyC, t); show(mLegend, !t);
+    setText(lv_obj_get_child(mLayerC, 0), t ? mapt::layer(st.mapLayer).name : "RADAR");
+    if (!t) { refreshRadar(); return; }
+    chipSet(mSeaC, st.mapSea, P->cyan);
+    double la, lo;
+    if (ownPos(la, lo) && (mFollow || !mCentered)) { mLat = la; mLon = lo; mCentered = true; }
+    chipSet(mMyC, mFollow, P->green);
     lv_obj_invalidate(mapObj);
 }
 
@@ -483,7 +711,7 @@ static void refreshWx() {
 void initStations() {
     registerScreen(SLIST, {"Stations", false, buildSlist, refreshSlist, enterSlist, nullptr});
     registerScreen(STATION, {"Station", false, buildStation, refreshStation, enterStation, nullptr});
-    registerScreen(MAP, {"Map", true, buildMap, refreshMap, enterSlist, nullptr});
+    registerScreen(MAP, {"Map", true, buildMap, refreshMap, enterMap, nullptr});
     registerScreen(WX, {"Weather", false, buildWx, refreshWx, enterSlist, nullptr});
 }
 

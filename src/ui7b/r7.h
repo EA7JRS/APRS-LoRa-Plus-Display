@@ -190,6 +190,8 @@ void keyboardFor(lv_obj_t* ta);
 lv_obj_t* symbol(lv_obj_t* p);
 void symbolSet(lv_obj_t* s, char table, char code);
 const char* symbolName(char table, char code);
+// el simbolo dibujado a mano (mapa), centrado en x, y (puntos reales)
+void drawSymbol(lv_layer_t* layer, int x, int y, char table, char code);
 
 // lista de filas reutilizables (S.LIST, mensajes, DX...): make crea una fila vacia; el clic llega con el indice en user_data
 struct List {

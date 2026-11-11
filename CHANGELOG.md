@@ -2,6 +2,7 @@
 
 ## Sin publicar (rama `lcd7-v2`)
 - **Placa Waveshare ESP32-S3-Touch-LCD-7** (sin B, rev 1.2; `waveshare_lcd7`): 800×480, expansor CH422G (la 7B lleva un CH32V003 y 1024×600: sus firmwares no valen, la pantalla se queda negra). Probada por Manuel el 2026-11-11: pantalla, imagen y táctil correctos.
+- **Mapa de teselas** en la interfaz tipo emisora (7B v2 y LCD-7 v2; pantalla MAP): OpenStreetMap, IGN topográfico (MTN) y ortofoto (PNOA), oscuro (OSM invertido), Esri World Imagery con la clave ArcGIS del usuario (Settings > Map) y marcas náuticas de OpenSeaMap encima; el radar sigue como una capa más. Encima del mapa: estaciones con su símbolo APRS y temperatura, barcos AIS, posición propia, haz del rotor, escala y atribución. Se arrastra con el dedo, zoom con - / +, MY vuelve a la posición propia y la sigue. Las teselas se bajan por WiFi (`src/maptiles.*`, tarea `tiles` de `net.cpp`), se guardan en la microSD (`/maps`) y sirven sin WiFi. Comprobado en el PC con teselas de prueba; sin probar en la placa.
 - **LCD-7 v2** (`waveshare_lcd7_v2`): la interfaz tipo emisora de la 7B v2 en 800×480. El código de `src/ui7b/` sigue en medidas de 1024×614 y `r7.h` (`R7_SCALED`) las reduce a 25/32 al llamar a LVGL; fuentes de la app y símbolos APRS generados a esa escala (`tools/make_fonts_7b.sh`, `tools/make_symbols.py 22`). Comprobada en el PC (36 capturas); sin probar en la placa.
 
 ## Sin publicar (rama `lcd7b-v2`)

@@ -42,6 +42,10 @@ bool dxPoll(std::string& line);
 std::string wxStatus();             // "OWM Sevilla 24.1 C, 3 min ago" o el motivo
 void wxNow();                       // bajarlo ya
 
+// Mapa de teselas (maptiles.h): reserva la memoria, monta la microSD y arranca la tarea que las baja. Se puede llamar mas veces.
+void mapBegin();
+bool sdOk();                        // hay microSD: las teselas se guardan en /maps y sirven sin WiFi
+
 // Firmware del tracker
 struct Fw {
     int phase = 0;                  // 0 nada, 1 buscando, 2 hay version, 3 bajando, 4 enviando, 5 hecho, 6 error

@@ -41,6 +41,12 @@ void load() {
     s.wxMinutes = p.getInt("wxmin", s.wxMinutes);
     s.wxToTracker = p.getBool("wxtr", s.wxToTracker);
     s.wxToRotor = p.getBool("wxrot", s.wxToRotor);
+    s.mapLayer = p.getInt("maplay", s.mapLayer);
+    s.mapZoom = p.getInt("mapz", s.mapZoom);
+    s.mapSea = p.getBool("mapsea", s.mapSea);
+    s.arcgisKey = str(p, "arcgis", s.arcgisKey);
+    if (s.mapLayer < 0 || s.mapLayer > 5) s.mapLayer = 0;
+    if (s.mapZoom < 3 || s.mapZoom > 19) s.mapZoom = 12;
     p.end();
 }
 
@@ -71,6 +77,10 @@ void save() {
     p.putInt("wxmin", s.wxMinutes);
     p.putBool("wxtr", s.wxToTracker);
     p.putBool("wxrot", s.wxToRotor);
+    p.putInt("maplay", s.mapLayer);
+    p.putInt("mapz", s.mapZoom);
+    p.putBool("mapsea", s.mapSea);
+    p.putString("arcgis", s.arcgisKey.c_str());
     p.end();
 }
 
