@@ -6,9 +6,13 @@
 // g++ -std=c++17 -I src -I <ArduinoJson>/src test/test_extra.cpp src/rotor_proto.cpp src/dxcluster.cpp -o /tmp/te && /tmp/te
 #include "rotor_proto.h"
 #include "dxcluster.h"
+#include "wxcalc.h"
+#include "astro.h"
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 static int fails = 0, total = 0;
+#define NEAR(a, b, tol) CHECK(std::fabs((double)(a) - (double)(b)) <= (tol))
 #define CHECK(c) do { total++; if (!(c)) { fails++; printf("FALLA %s:%d  %s\n", __FILE__, __LINE__, #c); } } while (0)
 int main() {
     rotp::Model m;
@@ -49,6 +53,45 @@ int main() {
     dx::Filter f;
     dx::parse("DX de EA7JRS-#:   7023.0  DL1ABC       CW 18 dB 24 WPM CQ                    1234Z", s);
     CHECK(dx::pass(f, s)); f.rbnCw = false; CHECK(!dx::pass(f, s)); f.rbnCw = true; f.band = "20m"; CHECK(!dx::pass(f, s));
+
+    // calculos meteorologicos
+    CHECK(wxc::beaufort(0) == 0 && wxc::beaufort(3) == 1 && wxc::beaufort(17) == 5 && wxc::beaufort(34) == 8 && wxc::beaufort(70) == 12);
+    CHECK(!strcmp(wxc::beaufortName(8), "Gale") && !strcmp(wxc::beaufortName(0), "Calm"));
+    NEAR(wxc::dewPointC(20, 50), 9.3, 0.15);                    // tablas psicrometricas: 9,3 C
+    NEAR(wxc::dewPointC(30, 100), 30, 0.01);
+    CHECK(!wxc::has(wxc::dewPointC(20, wxc::NA)) && !wxc::has(wxc::dewPointC(wxc::NA, 50)));
+    NEAR(wxc::windChillC(-10, 30), -19.5, 0.1);                 // tabla de Environment Canada: -20
+    NEAR(wxc::windChillC(5, 20), 1.1, 0.2);
+    CHECK(!wxc::has(wxc::windChillC(15, 30)) && !wxc::has(wxc::windChillC(0, 3)));
+    NEAR(wxc::heatIndexC(32.2222f, 70), 41.1, 0.3);             // tabla del NWS: 90 F y 70 % = 105-106 F
+    CHECK(!wxc::has(wxc::heatIndexC(20, 80)));
+    { int k = -1; NEAR(wxc::feelsLikeC(-10, 50, 30, &k), -19.5, 0.1); CHECK(k == 1); wxc::feelsLikeC(32.2222f, 70, 5, &k); CHECK(k == 2); CHECK(!wxc::has(wxc::feelsLikeC(18, 50, 10, &k)) && k == 0); }
+    NEAR(wxc::cloudBaseM(20, 12), 1000, 0.5);
+    NEAR(wxc::seaLevelHpa(1000, 100, 15), 1011.9, 0.3);
+    NEAR(wxc::seaLevelHpa(1013.25f, 0, 15), 1013.25, 0.01);
+    {
+        wxc::PressureTrend tr; float d = 0;
+        CHECK(!tr.delta3h(0, d));
+        for (int i = 0; i <= 36; i++) tr.add(i * 300, 1015.0f - i * 0.05f);        // 3 h bajando 1,8 hPa
+        CHECK(tr.delta3h(36 * 300, d)); NEAR(d, -1.8, 0.05);
+        CHECK(!strcmp(wxc::PressureTrend::name(d), "falling") && !strcmp(wxc::PressureTrend::name(0.4f), "steady") && !strcmp(wxc::PressureTrend::name(4), "rising fast"));
+        CHECK(!tr.delta3h(36 * 300 + 4000, d));                                     // la ultima lectura ya es vieja
+        wxc::PressureTrend t2; t2.add(0, 1010); t2.add(1800, 1011); CHECK(!t2.delta3h(1800, d));   // menos de 1 h
+        t2.add(3600, 1012); CHECK(t2.delta3h(3600, d)); NEAR(d, 6, 0.01);           // 2 hPa en 1 h = 6 en 3 h
+    }
+    NEAR(wxc::distUnit(1).k * 1.852, 1, 1e-9); CHECK(!strcmp(wxc::speedUnit(2).label, "mph")); NEAR(wxc::tempShown(100, 2), 212, 1e-4);
+    // sol y luna (las mismas pruebas del nucleo del plotter)
+    {
+        using namespace plotter;
+        double r, s2;
+        CHECK(sunTimes(2026, 3, 20, 0, 0, -0.833, r, s2)); NEAR(s2 - r, 12 * 60 + 7, 3);
+        CHECK(sunTimes(2026, 11, 11, 36.53, -6.28, -0.833, r, s2)); NEAR(s2 - r, 10 * 60 + 21, 4);
+        CHECK(!sunTimes(2026, 12, 21, 80, 0, -0.833, r, s2));
+        double alt, az, noon = solarNoonUtcMin(2026, 11, 11, -6.28) / 60;
+        sunPosition(2026, 11, 11, noon, 36.53, -6.28, alt, az); NEAR(az, 180, 0.2); NEAR(alt, 90 - 36.53 - 17.3, 0.3);
+        double age = moonAgeDays(2026, 11, 9, 7); CHECK(age < 0.7 || age > 29.530588853 - 0.7);
+        NEAR(moonIllumination(29.530588853 / 2), 1, 1e-12);
+    }
     printf("%d comprobaciones, %d fallos\n", total, fails);
     return fails ? 1 : 0;
 }

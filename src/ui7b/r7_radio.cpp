@@ -8,6 +8,9 @@
  */
 #ifdef UI_RADIO
 #include "r7.h"
+#include "wxcalc.h"
+#include "astro.h"
+#include "settings.h"
 #include "net.h"
 #include "settings.h"
 #include <cmath>
@@ -805,7 +808,7 @@ static void refreshDisp() {
             else if (M->rot.ok) { name = "Tracker rotor: " + M->rot.name; tdeg = M->rot.az; have = true; snprintf(b, sizeof b, "%.0f\xC2\xB0", M->rot.el); dist = b; }
         } else {
             name = "My course";
-            if (g.ok) { tdeg = g.crs; have = true; snprintf(b, sizeof b, "%.0f km/h", g.spd); dist = b; }
+            if (g.ok) { tdeg = g.crs; have = true; dist = fmtSpeed(g.spd); }
         }
         setText(dTarget, name.c_str());
         if (have) { snprintf(b, sizeof b, "%s %s", fmtDeg(tdeg).c_str(), proto::cardinal16(tdeg)); setText(dBearing, b); } else setText(dBearing, "-");
@@ -813,7 +816,8 @@ static void refreshDisp() {
         float rot = RM.pos.az;
         const bool rotOk = dTgt != 3 && RM.pos.ok && net::rotorState() == net::Link::Linked;
         dComp->set(hdgUp ? heading : 0, have ? &tdeg : nullptr, rotOk ? &rot : nullptr, heading >= 0 ? &heading : nullptr);
-        if (g.ok) { snprintf(b, sizeof b, "%.0f", g.spd); dSpd.set(b); dCrs.set(fmtDeg(g.crs).c_str()); } else { dSpd.set("-"); dCrs.set("-"); }
+        setText(dSpd.unit, speedLabel());
+        if (g.ok) { snprintf(b, sizeof b, "%.0f", g.spd * wxc::speedUnit(cfg::get().units).k); dSpd.set(b); dCrs.set(fmtDeg(g.crs).c_str()); } else { dSpd.set("-"); dCrs.set("-"); }
         if (s.temp > -900) { snprintf(b, sizeof b, "%.1f", s.temp); dTemp.set(b, tempColor(s.temp)); } else dTemp.set("-");
         if (s.qnh > 0) { snprintf(b, sizeof b, "%.0f", s.qnh); dQnh.set(b); } else dQnh.set("-");
     } else if (page == 1) {
@@ -858,7 +862,7 @@ static void refreshDisp() {
             if (M->sky.ok && M->sky.pd > 0) gpsRows.addf("DOP", P->text, "P %.1f  H %.1f  V %.1f", M->sky.pd, M->sky.hd, M->sky.vd);
             else gpsRows.addf("HDOP", P->text, "%.1f", g.hdop);
             if (M->sky.ok && M->sky.err > 0) gpsRows.addf("ERROR", P->text, "%.1f m", M->sky.err);
-            gpsRows.addf("SPEED", P->text, "%.0f km/h  %s", g.spd, fmtDeg(g.crs).c_str());
+            gpsRows.addf("SPEED", P->text, "%s  %s", fmtSpeed(g.spd).c_str(), fmtDeg(g.crs).c_str());
             if (!g.utc.empty()) gpsRows.add("UTC", g.utc.c_str());
             if (!M->sky.ok) gpsRows.add("SKY", "Needs tracker firmware with the 'sky' event", P->muted);
         }
@@ -872,7 +876,8 @@ static void refreshDisp() {
         f(4, s.temp, "%.1f", s.temp > -900, s.temp > -900 ? tempColor(s.temp) : 0xFFFFFFFF);
         f(5, s.hum, "%.0f", s.hum >= 0);
         if (!s.iaqLabel.empty()) aT[6].set(s.iaqLabel.c_str()); else f(6, s.iaq, "IAQ %.0f", s.iaq >= 0);
-        f(7, g.spd, "%.0f", g.ok);
+        setText(aT[7].unit, speedLabel());
+        f(7, g.spd * (float)wxc::speedUnit(cfg::get().units).k, "%.0f", g.ok);
     } else {
         int y, mo, d, h, mi, sc;
         if (utcNow(y, mo, d, h, mi, sc)) {
@@ -883,6 +888,27 @@ static void refreshDisp() {
         clkRows.begin();
         clkRows.add("TIME FROM", net::timeValid() ? "internet (NTP)" : g.ok ? "tracker GNSS" : "-");
         if (M->status.ok) clkRows.addf("TRACKER UP", P->text, "%lu h %02lu min", (unsigned long)(M->status.up / 3600), (unsigned long)(M->status.up / 60 % 60));
+        // sol y luna en la posicion propia (astro del nucleo del plotter: formulas de NOAA, alrededor de un minuto)
+        double la, lo;
+        if (ownPos(la, lo) && utcNow(y, mo, d, h, mi, sc)) {
+            auto hm = [](double m, char* o, size_t n) { int t = ((int)lround(m) % 1440 + 1440) % 1440; snprintf(o, n, "%02d:%02d", t / 60, t % 60); };
+            double r, s2, r6, s6;
+            char a[8], c[8];
+            if (plotter::sunTimes(y, mo, d, la, lo, -0.833, r, s2)) {
+                hm(r, a, sizeof a); hm(s2, c, sizeof c);
+                clkRows.addf("SUN UP / DOWN", P->amber, "%s / %s UTC", a, c);
+                clkRows.addf("DAYLIGHT", P->text, "%d h %02d min", (int)(s2 - r) / 60, (int)(s2 - r) % 60);
+            } else clkRows.add("SUN UP / DOWN", "none today");
+            if (plotter::sunTimes(y, mo, d, la, lo, -6, r6, s6)) { hm(r6, a, sizeof a); hm(s6, c, sizeof c); clkRows.addf("TWILIGHT", P->text, "%s / %s UTC", a, c); }
+            double alt, az;
+            const double uh = h + mi / 60.0 + sc / 3600.0;
+            plotter::sunPosition(y, mo, d, uh, la, lo, alt, az);
+            clkRows.addf("SUN NOW", alt > 0 ? P->text : P->muted, "alt %.0f\xC2\xB0 az %s", alt, fmtDeg(az).c_str());
+            const double age = plotter::moonAgeDays(y, mo, d, uh), ill = plotter::moonIllumination(age);
+            const char* ph = age < 1.85 ? "new" : age < 5.54 ? "crescent +" : age < 9.23 ? "first quarter" : age < 12.92 ? "gibbous +" : age < 16.61 ? "full"
+                           : age < 20.30 ? "gibbous -" : age < 23.99 ? "last quarter" : age < 27.68 ? "crescent -" : "new";
+            clkRows.addf("MOON", P->text, "%s \xC2\xB7 %.0f %%", ph, ill * 100);
+        }
         clkRows.addf("DISPLAY UP", P->text, "%lu h %02lu min", (unsigned long)(nowMs() / 3600000), (unsigned long)(nowMs() / 60000 % 60));
         clkRows.end();
     }

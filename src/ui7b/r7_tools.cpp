@@ -453,7 +453,8 @@ static void onSaveDx(lv_event_t*) {
     cfg::save();
     notice("DX cluster saved");
 }
-static lv_obj_t *gArc, *gSd;
+static lv_obj_t *gArc, *gSd, *gUnit[3];
+static void onUnits(lv_event_t* e) { cfg::get().units = (int)(intptr_t)lv_event_get_user_data(e); cfg::save(); requestRefresh(); }
 static void onSaveArc(lv_event_t*) {
     std::string k = lv_textarea_get_text(gArc);
     if (k.empty()) return;
@@ -561,6 +562,10 @@ static void buildSettings(lv_obj_t* root) {
     lv_obj_set_flex_grow(gArc, 1);
     button(mr, "SAVE", onSaveArc, nullptr, 0, 52, P->green);
     gSd = wrap(mc, "", &app_text_18, P->muted);
+    lv_obj_t* ur = row(mc, 8);
+    text(ur, "UNITS", &app_bold_18, P->muted);
+    static const char* un[] = {"METRIC", "NAUTICAL", "IMPERIAL"};
+    for (int i = 0; i < 3; i++) gUnit[i] = chip(ur, un[i], false, onUnits, (void*)(intptr_t)i);
     wrap(s, "Theme (dark / light): side menu. Touch keys: hold a key in the [F] menu.", &app_text_18, P->muted);
 }
 static void refreshSettings() {
@@ -583,6 +588,7 @@ static void refreshSettings() {
     lv_textarea_set_placeholder_text(gPass, cfg::get().wifiPass.empty() ? "Password" : "Password saved (empty = keep)");
     lv_textarea_set_placeholder_text(gArc, cfg::get().arcgisKey.empty() ? "ArcGIS API key" : "ArcGIS key saved (empty = keep)");
     setText(gSd, net::sdOk() ? "microSD: tiles are saved in /maps and work without WiFi." : "No microSD (or the map not opened yet): tiles are kept only while the display is on.");
+    for (int i = 0; i < 3; i++) chipSet(gUnit[i], cfg::get().units == i);
     chipSet(gWxTr, cfg::get().wxToTracker, P->green);
     chipSet(gWxRot, cfg::get().wxToRotor, P->green);
     setTextf(gBack, "Backlight %d %%", cfg::get().backlight);

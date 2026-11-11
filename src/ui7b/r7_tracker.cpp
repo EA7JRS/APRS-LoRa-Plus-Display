@@ -8,6 +8,7 @@
  */
 #ifdef UI_RADIO
 #include "r7.h"
+#include "wxcalc.h"
 #include "net.h"
 #include "settings.h"
 #include "tracker_link.h"
@@ -372,6 +373,7 @@ static void refreshSensors() {
         if (s.vbus > 0) sTr.addf("USB", P->text, "%.2f V", s.vbus);
         if (s.temp > -900) sTr.addf("TEMPERATURE", tempColor(s.temp), "%.1f \xC2\xB0" "C%s", s.temp, s.wxSensor.empty() ? "" : ("  " + s.wxSensor).c_str());
         if (s.hum >= 0) sTr.addf("HUMIDITY", P->text, "%.0f %%", s.hum);
+        { const float dew = wxc::dewPointC(s.temp, s.hum >= 0 ? s.hum : wxc::NA); if (wxc::has(dew)) sTr.addf("DEW POINT", P->text, "%s", fmtTemp(dew).c_str()); }
         if (s.press > 0) sTr.addf("PRESSURE", P->text, "%.1f hPa", s.press);
         if (s.qnh > 0) sTr.addf("QNH", P->text, "%.1f hPa%s", s.qnh, s.qnhSrc == "net" ? " (internet)" : s.qnhSrc == "man" ? " (manual)" : s.qnhSrc == "gps" ? " (GPS)" : "");
         if (s.baroAlt > -900) sTr.addf("BARO ALTITUDE", P->text, "%.0f m", s.baroAlt);
@@ -390,10 +392,21 @@ static void refreshSensors() {
         sNet.addf("SOURCE", P->text, "%s %s \xC2\xB7 %u min ago", n.src.c_str(), n.place.c_str(), (unsigned)(n.age / 60));
         if (!n.desc.empty()) sNet.add("SKY", n.desc.c_str());
         if (n.t > -900) sNet.addf("TEMPERATURE", tempColor(n.t), "%.1f \xC2\xB0" "C", n.t);
-        if (n.h >= 0) sNet.addf("HUMIDITY", P->text, "%.0f %%", n.h);
+        {
+            int fk = 0;
+            const float hum = n.h >= 0 ? n.h : wxc::NA, kmh = n.ws >= 0 ? n.ws * 3.6f : wxc::NA;
+            const float feels = wxc::feelsLikeC(n.t, hum, kmh, &fk), dew = wxc::dewPointC(n.t, hum);
+            if (wxc::has(feels)) sNet.addf("FEELS LIKE", tempColor(feels), "%s (%s)", fmtTemp(feels).c_str(), fk == 1 ? "wind chill" : "heat index");
+            if (n.h >= 0) sNet.addf("HUMIDITY", P->text, "%.0f %%", n.h);
+            if (wxc::has(dew)) sNet.addf("DEW POINT", P->text, "%s \xC2\xB7 cloud base ~%.0f m", fmtTemp(dew).c_str(), wxc::cloudBaseM(n.t, dew));
+        }
         if (n.p > 0) sNet.addf("PRESSURE", P->text, n.d3 > -900 ? "%.1f hPa, %+.1f in 3 h" : "%.1f hPa", n.p, n.d3);
         if (!n.forecast.empty()) sNet.add("FORECAST", n.forecast.c_str(), P->cyan);
-        if (n.ws >= 0) sNet.addf("WIND", P->text, "%.1f m/s%s%s", n.ws, n.wg >= 0 ? (", gusts " + std::to_string((int)n.wg)).c_str() : "", n.wd >= 0 ? (" from " + std::string(proto::cardinal16(n.wd))).c_str() : "");
+        if (n.ws >= 0) {
+            const int f = wxc::beaufort(n.ws * 1.943844);
+            sNet.addf("WIND", f >= 8 ? P->red : f >= 6 ? P->amber : P->text, "%s%s%s \xC2\xB7 F%d %s", fmtSpeed(n.ws * 3.6).c_str(),
+                      n.wg >= 0 ? (", gusts " + fmtSpeed(n.wg * 3.6)).c_str() : "", n.wd >= 0 ? (" from " + std::string(proto::cardinal16(n.wd))).c_str() : "", f, wxc::beaufortName(f));
+        }
         if (n.rain >= 0) sNet.addf("RAIN", P->text, "%.1f mm/h", n.rain);
         if (n.aqiUs >= 0) sNet.addf("AIR QUALITY", P->text, "US AQI %d %s", n.aqiUs, n.pollutant.c_str());
         else if (n.aqiOwm > 0) sNet.addf("AIR QUALITY", P->text, "%d / 5", n.aqiOwm);

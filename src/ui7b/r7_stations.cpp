@@ -9,6 +9,8 @@
 #include "r7.h"
 #include "net.h"
 #include "maptiles.h"
+#include "wxcalc.h"
+#include <map>
 #include "settings.h"
 #include <algorithm>
 #include <cmath>
@@ -66,8 +68,8 @@ static std::string stSub(const proto::Heard& h) {
     if (h.wx.ok) {
         char b[80];
         int k = 0;
-        if (h.wx.t > -900) k += snprintf(b + k, sizeof b - k, "%.0f\xC2\xB0" "C ", h.wx.t);
-        if (h.wx.ws > -900) k += snprintf(b + k, sizeof b - k, "wind %.0f km/h ", h.wx.ws);
+        if (h.wx.t > -900) k += snprintf(b + k, sizeof b - k, "%s ", fmtTemp(h.wx.t, 0).c_str());
+        if (h.wx.ws > -900) k += snprintf(b + k, sizeof b - k, "wind %s F%d ", fmtSpeed(h.wx.ws).c_str(), wxc::beaufort(wxc::kmhToKn(h.wx.ws)));
         if (h.wx.p > -900) snprintf(b + k, sizeof b - k, "%.0f hPa", h.wx.p);
         s = b;
     } else if (!h.cmt.empty()) s = h.cmt;
@@ -241,7 +243,7 @@ static void refreshStation() {
         if (h->pa >= 0) dRows.add("POSITION AGE", fmtAge(h->pa + ex).c_str());
     }
     if (h->alt) dRows.addf("ALTITUDE", P->text, "%d m", h->alt);
-    if (h->spd > 0) dRows.addf("SPEED", P->text, "%d km/h \xC2\xB7 %s", h->spd, fmtDeg(h->crs).c_str());
+    if (h->spd > 0) dRows.addf("SPEED", P->text, "%s \xC2\xB7 %s", fmtSpeed(h->spd).c_str(), fmtDeg(h->crs).c_str());
     if (!h->dev.empty()) dRows.add("DEVICE", h->dev.c_str());
     if (!h->sts.empty()) dRows.add("STATUS", h->sts.c_str(), h->sts.find("mergency") != std::string::npos ? P->red : P->text);
     if (!h->path.empty()) dRows.add("PATH", h->path.c_str());
@@ -250,14 +252,25 @@ static void refreshStation() {
     dRows.end();
     if (h->wx.ok) {
         dWx.begin();
-        if (h->wx.t > -900) dWx.addf("TEMPERATURE", tempColor(h->wx.t), "%.1f \xC2\xB0" "C", h->wx.t);
+        const wxc::Unit su = wxc::speedUnit(cfg::get().units);
+        if (h->wx.t > -900) dWx.add("TEMPERATURE", fmtTemp(h->wx.t).c_str(), tempColor(h->wx.t));
+        int fk = 0;
+        const float feels = wxc::feelsLikeC(h->wx.t, h->wx.h, h->wx.ws, &fk), dew = wxc::dewPointC(h->wx.t, h->wx.h);
+        if (wxc::has(feels)) dWx.addf("FEELS LIKE", tempColor(feels), "%s (%s)", fmtTemp(feels).c_str(), fk == 1 ? "wind chill" : "heat index");
         if (h->wx.h > -900) dWx.addf("HUMIDITY", P->text, "%.0f %%", h->wx.h);
-        if (h->wx.p > -900) dWx.addf("PRESSURE", P->text, "%.1f hPa", h->wx.p);
+        if (wxc::has(dew)) dWx.addf("DEW POINT", P->text, "%s \xC2\xB7 cloud base ~%.0f m", fmtTemp(dew).c_str(), wxc::cloudBaseM(h->wx.t, dew));
+        if (h->wx.p > -900) {
+            float d3;
+            if (wxTrend(h->call, d3)) dWx.addf("PRESSURE", d3 <= -3.5f ? P->amber : P->text, "%.1f hPa \xC2\xB7 %s (%+.1f in 3 h)", h->wx.p, wxc::PressureTrend::name(d3), d3);
+            else dWx.addf("PRESSURE", P->text, "%.1f hPa", h->wx.p);
+        }
         if (h->wx.ws > -900) {
-            int k = snprintf(b, sizeof b, "%.0f km/h", h->wx.ws);
-            if (h->wx.wg > -900) k += snprintf(b + k, sizeof b - k, ", gusts %.0f", h->wx.wg);
+            int k = snprintf(b, sizeof b, "%.0f %s", h->wx.ws * su.k, su.label);
+            if (h->wx.wg > -900) k += snprintf(b + k, sizeof b - k, ", gusts %.0f", h->wx.wg * su.k);
             if (h->wx.wd > -900) snprintf(b + k, sizeof b - k, " from %s", proto::cardinal16(h->wx.wd));
             dWx.add("WIND", b);
+            const int f = wxc::beaufort(wxc::kmhToKn(h->wx.ws));
+            dWx.addf("BEAUFORT", f >= 8 ? P->red : f >= 6 ? P->amber : P->text, "Force %d \xC2\xB7 %s", f, wxc::beaufortName(f));
         }
         if (h->wx.r > -900) dWx.addf("RAIN", P->text, "%.1f mm (1 h)", h->wx.r / 10.0f);
         dWx.end();
@@ -481,7 +494,7 @@ static void tilesDraw(lv_event_t* e) {
         drawSymbol(layer, x, y, hd.symTable(), hd.symCode());
         tag(layer, x + SYM / 2 + 6, y - SYM / 2, hd.call.c_str(), &app_bold_18, P->text);
         if (hd.wx.ok && hd.wx.t > -900) {
-            snprintf(b, sizeof b, "%.0f\xC2\xB0", hd.wx.t);
+            snprintf(b, sizeof b, "%.0f\xC2\xB0", wxc::tempShown(hd.wx.t, cfg::get().units));
             tag(layer, x + SYM / 2 + 6, y - SYM / 2 + lv_font_get_line_height(&app_bold_18) + 1, b, &app_cond_16, tempColor(hd.wx.t));
         }
     }
@@ -502,16 +515,20 @@ static void tilesDraw(lv_event_t* e) {
     }
     // escala
     const double mpp = mapt::metersPerPixel(mLat, z);
+    // en metros / km, o en millas (nauticas o terrestres) segun las unidades elegidas
     static const double NICE[] = {50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000, 2000000};
+    const int usys = cfg::get().units;
+    const double unitM = usys == 1 ? 1852.0 : usys == 2 ? 1609.344 : 1.0;      // metros por unidad de la escala (/1000 en millas)
     double len = NICE[0];
-    for (double v : NICE) if (v / mpp <= w / 5.0) len = v;
-    const int bar = (int)(len / mpp);
+    for (double v : NICE) if (v * (usys ? unitM / 1000 : 1) / mpp <= w / 5.0) len = v;
+    const int bar = (int)(len * (usys ? unitM / 1000 : 1) / mpp);
     lv_draw_rect_dsc_t sb;
     lv_draw_rect_dsc_init(&sb);
     sb.bg_color = C(P->text); sb.border_color = C(P->bg); sb.border_width = 1;
     lv_area_t sa = {a.x1 + 10, a.y2 - 12, a.x1 + 10 + bar, a.y2 - 8};
     lv_draw_rect(layer, &sb, &sa);
-    if (len >= 1000) snprintf(b, sizeof b, "%.0f km", len / 1000); else snprintf(b, sizeof b, "%.0f m", len);
+    if (usys) snprintf(b, sizeof b, len >= 1000 ? "%.0f %s" : "%.2g %s", len / 1000, usys == 1 ? "nm" : "mi");
+    else if (len >= 1000) snprintf(b, sizeof b, "%.0f km", len / 1000); else snprintf(b, sizeof b, "%.0f m", len);
     tag(layer, a.x1 + 10, a.y2 - 14 - lv_font_get_line_height(&app_cond_16), b, &app_cond_16, P->text);
     // de quien es el mapa y como va la descarga
     std::string at = mapt::layer(st.mapLayer).attribution;
@@ -580,6 +597,11 @@ static void mapTimer(lv_timer_t*) {
     mSeq = mapt::seq();
     lv_obj_invalidate(mapObj);
 }
+void mapCenterOn(double lat, double lon) {
+    mLat = lat; mLon = lon; mCentered = true; mFollow = false;
+    if (!tiles()) { cfg::get().mapLayer = mapt::OSM; cfg::save(); }
+    if (cfg::get().mapZoom < 13) cfg::get().mapZoom = 13;
+}
 static void enterMap() { enterSlist(); if (tiles()) net::mapBegin(); }
 static void buildMap(lv_obj_t* root) {
     lv_obj_t* tr;
@@ -632,6 +654,28 @@ static void refreshMap() {
 }
 
 // ------------------------------------------------------------------ estaciones meteorologicas
+// Tendencia de la presion de cada estacion (hasta 24): una serie por indicativo, alimentada con cada paquete nuevo.
+static std::map<std::string, wxc::PressureTrend> wTrend;
+static std::map<std::string, int> wSeen;                // n de paquetes ya contado, para no repetir la misma lectura
+void wxTrack() {
+    static uint32_t last = 0;
+    if (nowMs() - last < 20000 && last) return;
+    last = nowMs();
+    const uint32_t nowS = nowMs() / 1000;
+    for (const proto::Heard& h : M->heard) {
+        if (!h.wx.ok || h.wx.p < -900) continue;
+        auto it = wSeen.find(h.call);
+        if (it == wSeen.end() && wTrend.size() >= 24) continue;
+        if (it != wSeen.end() && it->second == h.n) continue;
+        wSeen[h.call] = h.n;
+        const uint32_t age = (uint32_t)(h.age + (int)((nowMs() - M->heardAtMs) / 1000));
+        wTrend[h.call].add(nowS > age ? nowS - age : 0, h.wx.p);
+    }
+}
+bool wxTrend(const std::string& call, float& d3h) {
+    auto it = wTrend.find(call);
+    return it != wTrend.end() && it->second.delta3h(nowMs() / 1000, d3h);
+}
 static int wSort = 0;                       // 0 distancia, 1 hora, 2 temperatura, 3 viento
 static lv_obj_t* wSortC[4];
 static lv_obj_t* wEmpty;
@@ -692,17 +736,23 @@ static void refreshWx() {
         if (me && h.hasPos) s = fmtKm(proto::distanceKm(la, lo, h.lat, h.lon)) + " \xC2\xB7 " + s;
         setText(lv_obj_get_child(c, 1), s.c_str());
         lv_obj_t* t = lv_obj_get_child(r, 1);
-        if (w.t > -900) { snprintf(b, sizeof b, "%.1f\xC2\xB0", w.t); setText(t, b); setColor(t, tempColor(w.t)); } else { setText(t, "-"); setColor(t, P->off); }
+        if (w.t > -900) { snprintf(b, sizeof b, "%.1f\xC2\xB0", wxc::tempShown(w.t, cfg::get().units)); setText(t, b); setColor(t, tempColor(w.t)); } else { setText(t, "-"); setColor(t, P->off); }
         lv_obj_t* d = lv_obj_get_child(r, 2);
         int k = 0;
         b[0] = 0;
-        if (w.ws > -900) k += snprintf(b + k, sizeof b - k, "Wind %.0f km/h%s%s", w.ws, w.wd > -900 ? " " : "", w.wd > -900 ? proto::cardinal16(w.wd) : "");
-        if (w.wg > -900) k += snprintf(b + k, sizeof b - k, ", gusts %.0f", w.wg);
+        const wxc::Unit su = wxc::speedUnit(cfg::get().units);
+        if (w.ws > -900) k += snprintf(b + k, sizeof b - k, "Wind %.0f %s%s%s", w.ws * su.k, su.label, w.wd > -900 ? " " : "", w.wd > -900 ? proto::cardinal16(w.wd) : "");
+        if (w.wg > -900) k += snprintf(b + k, sizeof b - k, ", gusts %.0f", w.wg * su.k);
+        if (w.ws > -900) { const int f = wxc::beaufort(wxc::kmhToKn(w.ws)); k += snprintf(b + k, sizeof b - k, " \xC2\xB7 F%d %s", f, wxc::beaufortName(f)); }
         setText(lv_obj_get_child(d, 0), b);
         k = 0; b[0] = 0;
         if (w.h > -900) k += snprintf(b + k, sizeof b - k, "Hum %.0f %%   ", w.h);
-        if (w.p > -900) k += snprintf(b + k, sizeof b - k, "%.1f hPa   ", w.p);
-        if (w.r > -900) snprintf(b + k, sizeof b - k, "Rain %.1f mm", w.r / 10.0f);
+        float d3;
+        if (w.p > -900) k += wxTrend(h.call, d3) ? snprintf(b + k, sizeof b - k, "%.1f hPa %s   ", w.p, wxc::PressureTrend::name(d3)) : snprintf(b + k, sizeof b - k, "%.1f hPa   ", w.p);
+        const float dew = wxc::dewPointC(w.t, w.h), feels = wxc::feelsLikeC(w.t, w.h, w.ws);
+        if (wxc::has(dew)) k += snprintf(b + k, sizeof b - k, "Dew %.0f\xC2\xB0   ", wxc::tempShown(dew, cfg::get().units));
+        if (wxc::has(feels)) k += snprintf(b + k, sizeof b - k, "Feels %.0f\xC2\xB0   ", wxc::tempShown(feels, cfg::get().units));
+        if (w.r > -900 && k < (int)sizeof b) snprintf(b + k, sizeof b - k, "Rain %.1f mm", w.r / 10.0f);
         setText(lv_obj_get_child(d, 1), b);
     }
     wList.end();

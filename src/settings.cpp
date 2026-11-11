@@ -41,6 +41,8 @@ void load() {
     s.wxMinutes = p.getInt("wxmin", s.wxMinutes);
     s.wxToTracker = p.getBool("wxtr", s.wxToTracker);
     s.wxToRotor = p.getBool("wxrot", s.wxToRotor);
+    s.units = p.getInt("units", s.units);
+    if (s.units < 0 || s.units > 2) s.units = 0;
     s.mapLayer = p.getInt("maplay", s.mapLayer);
     s.mapZoom = p.getInt("mapz", s.mapZoom);
     s.mapSea = p.getBool("mapsea", s.mapSea);
@@ -77,6 +79,7 @@ void save() {
     p.putInt("wxmin", s.wxMinutes);
     p.putBool("wxtr", s.wxToTracker);
     p.putBool("wxrot", s.wxToRotor);
+    p.putInt("units", s.units);
     p.putInt("maplay", s.mapLayer);
     p.putInt("mapz", s.mapZoom);
     p.putBool("mapsea", s.mapSea);

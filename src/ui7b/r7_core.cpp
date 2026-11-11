@@ -13,6 +13,7 @@
 #include "settings.h"
 #include "tracker_link.h"
 #include "ui_assets.h"
+#include "wxcalc.h"
 #include <src/lvgl_private.h>
 #include <cmath>
 #include <cstdarg>
@@ -600,7 +601,21 @@ std::string fmtAge(int s) {
 std::string fmtKm(double km) {
     char b[24];
     if (km < 0) return "-";
-    if (km < 10) snprintf(b, sizeof b, "%.1f km", km); else snprintf(b, sizeof b, "%.0f km", km);
+    const wxc::Unit u = wxc::distUnit(cfg::get().units);
+    const double v = km * u.k;
+    if (v < 10) snprintf(b, sizeof b, "%.1f %s", v, u.label); else snprintf(b, sizeof b, "%.0f %s", v, u.label);
+    return b;
+}
+std::string fmtSpeed(double kmh) {
+    char b[24];
+    const wxc::Unit u = wxc::speedUnit(cfg::get().units);
+    snprintf(b, sizeof b, "%.0f %s", kmh * u.k, u.label);
+    return b;
+}
+const char* speedLabel() { return wxc::speedUnit(cfg::get().units).label; }
+std::string fmtTemp(float c, int decimals) {
+    char b[24];
+    snprintf(b, sizeof b, "%.*f %s", decimals, wxc::tempShown(c, cfg::get().units), wxc::tempLabel(cfg::get().units));
     return b;
 }
 std::string fmtDeg(double d) { char b[16]; snprintf(b, sizeof b, "%03.0f\xC2\xB0", fmod(d + 360.0, 360.0)); return b; }
@@ -1008,14 +1023,25 @@ static lv_obj_t* alert = nullptr;
 static int alertEq = -1;
 static int alertClosedEq = -2;
 static bool alertEai = false;
-static void alertClose(lv_event_t*) { if (alert) { lv_obj_delete(alert); alert = nullptr; } alertClosedEq = M->leds.eq; }
+// Como la app y el plotter: cerrada una alerta, esa misma estacion no la vuelve a abrir en 10 min aunque siga emitiendo.
+static std::string alertClosedCall;
+static uint32_t alertClosedAt = 0;
+static void alertForget() { alertClosedEq = M->leds.eq; alertClosedCall = M->leds.ec; alertClosedAt = nowMs(); }
+static void alertClose(lv_event_t*) { if (alert) { lv_obj_delete(alert); alert = nullptr; } alertForget(); }
+static void alertMap(lv_event_t*) {
+    std::string c = M->leds.ec;
+    if (alert) { lv_obj_delete(alert); alert = nullptr; }
+    alertForget();
+    for (const proto::Heard& h : M->heard) if (h.call == c && h.hasPos) { mapCenterOn(h.lat, h.lon); go(MAP); return; }
+    go(STATION, c);
+}
 static void alertSilence(lv_event_t*) { trk::send(proto::Cmd("alarm").text("s", "off").str()); }
 static void alertStop(lv_event_t*) { trk::send(proto::Cmd("eai").text("s", "stop").str()); }
 static void alertOk(lv_event_t*) { trk::send(proto::Cmd("eai").text("s", "ok").str()); }
 static void alertStation(lv_event_t*) {
     std::string c = M->leds.ec;
     if (alert) { lv_obj_delete(alert); alert = nullptr; }
-    alertClosedEq = M->leds.eq;
+    alertForget();
     go(STATION, c);
 }
 static void buildAlert(bool eai) {
@@ -1041,10 +1067,11 @@ static void buildAlert(bool eai) {
         button(r, "I'M OK", alertOk, nullptr, 150, 60, P->green);
         button(r, "STOP EAI", alertStop, nullptr, 170, 60, P->amber);
     } else {
-        button(r, "STATION", alertStation, nullptr, 150, 60, P->cyan);
-        button(r, "SILENCE", alertSilence, nullptr, 150, 60, P->amber);
+        button(r, "MAP", alertMap, nullptr, 110, 60, P->cyan);
+        button(r, "STATION", alertStation, nullptr, 140, 60, P->cyan);
+        button(r, "SILENCE", alertSilence, nullptr, 140, 60, P->amber);
     }
-    button(r, "CLOSE", alertClose, nullptr, 140, 60);
+    button(r, "CLOSE", alertClose, nullptr, 120, 60);
 }
 static void refreshAlert() {
     const proto::Leds& l = M->leds;
@@ -1063,13 +1090,23 @@ static void refreshAlert() {
         return;
     }
     if (alert && alertEai) { lv_obj_delete(alert); alert = nullptr; }
-    if (l.ok && l.emg && l.eq != alertClosedEq) {
+    if (alert && !alertEai && !(l.ok && l.emg)) { lv_obj_delete(alert); alert = nullptr; }     // la alarma ha terminado: se quita sola
+    const bool snoozed = !alertClosedCall.empty() && l.ec == alertClosedCall && nowMs() - alertClosedAt < 600000;
+    if (l.ok && l.emg && l.eq != alertClosedEq && !snoozed) {
         if (!alert || alertEq != l.eq) { buildAlert(false); alertEq = l.eq; }
         lv_obj_t* p = lv_obj_get_child(alert, 0);
         const char* kind = l.ek == "mob" ? "MAN OVERBOARD" : l.ek == "ais_sos" ? "AIS DISTRESS" : l.ek == "ais_cpa" ? "COLLISION RISK" : "EMERGENCY";
         setText(lv_obj_get_child(p, 0), kind);
         setText(lv_obj_get_child(p, 1), l.ec.empty() ? "-" : l.ec.c_str());
-        setText(lv_obj_get_child(p, 2), (l.et + (l.em ? "  (message)" : "  (beacon)")).c_str());
+        std::string body = l.et + (l.em ? "  (message)" : "  (beacon)");
+        double la, lo;
+        for (const proto::Heard& h : M->heard)
+            if (h.call == l.ec && h.hasPos) {
+                if (ownPos(la, lo)) body += "\n" + fmtKm(proto::distanceKm(la, lo, h.lat, h.lon)) + " at " + fmtDeg(proto::bearingDeg(la, lo, h.lat, h.lon)) + " (" + proto::cardinal16(proto::bearingDeg(la, lo, h.lat, h.lon)) + ")";
+                body += "  \xC2\xB7  " + proto::locator(h.lat, h.lon);
+                break;
+            }
+        setText(lv_obj_get_child(p, 2), body.c_str());
     }
 }
 
@@ -1171,6 +1208,7 @@ void updateRadio() {
         drawnRev = M->revision; drawnRotRev = RM.revision; drawnDx = DX.seq;
         forceRefresh = false;
         refreshAlert();
+        wxTrack();
         Scr s = top();
         if (defs[s].refresh) defs[s].refresh();
         if (changed) { refreshStatus(); refreshTouchKeys(); }

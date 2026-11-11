@@ -218,7 +218,15 @@ Compass* compass(lv_obj_t* p, int size);
 
 // formato
 std::string fmtAge(int s);
-std::string fmtKm(double km);
+std::string fmtKm(double km);                           // distancia en las unidades elegidas (Settings > Units)
+std::string fmtSpeed(double kmh);                       // velocidad con su unidad
+std::string fmtTemp(float c, int decimals = 1);         // temperatura con su unidad
+const char* speedLabel();
+// la estacion meteorologica "call" acaba de dar esta presion: guarda la serie para la tendencia a 3 h
+void wxTrack();
+bool wxTrend(const std::string& call, float& d3h);
+// centra el mapa en un punto (deja de seguir la posicion propia)
+void mapCenterOn(double lat, double lon);
 std::string fmtDeg(double d);
 uint32_t tempColor(float c);
 // frecuencia grande: "433.775" + "000"
