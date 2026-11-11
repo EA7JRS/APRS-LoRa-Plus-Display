@@ -8,8 +8,11 @@
 #include <cstdint>
 #include <string>
 
+namespace proto { struct Model; }
+
 namespace net {
 
+void setModel(proto::Model* m);   // el modelo del tracker (posicion para el tiempo, eventos ota)
 void begin();                       // tareas y WiFi con los ajustes guardados
 void loop();                        // desde loop(): reparte lo que llega (rotor, DX) y lo periodico (tiempo)
 

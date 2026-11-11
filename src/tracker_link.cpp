@@ -9,6 +9,7 @@
 #include <Preferences.h>
 #include <cctype>
 #include <deque>
+#include <vector>
 #include <mutex>
 
 namespace trk {
@@ -16,11 +17,14 @@ namespace trk {
 static const NimBLEUUID UUID_CTRL("4c6f5261-2b00-4ea7-a000-000000000001");
 static const NimBLEUUID UUID_CMD("4c6f5261-2b00-4ea7-a000-000000000002");
 static const NimBLEUUID UUID_EVT("4c6f5261-2b00-4ea7-a000-000000000003");
+static const NimBLEUUID UUID_FW("4c6f5261-2b00-4ea7-a000-000000000005");
 static const NimBLEUUID UUID_KISS("00000001-ba2a-46c9-ae49-01b0961f68bb");       // los que anuncia el tracker
 static const NimBLEUUID UUID_TNC2("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");
 
 static std::mutex mx;
 static std::deque<std::string> rxLines, txLines;
+static std::deque<std::vector<uint8_t>> fwChunks;
+static std::mutex scanMx;
 static proto::LineBuffer lineBuf;
 static volatile State st = State::Idle;
 static std::string peer, wantAddr;
@@ -81,6 +85,7 @@ static void session() {
 
     NimBLERemoteService* svc = cli->getService(UUID_CTRL);
     NimBLERemoteCharacteristic *cmd = svc ? svc->getCharacteristic(UUID_CMD) : nullptr, *evt = svc ? svc->getCharacteristic(UUID_EVT) : nullptr;
+    NimBLERemoteCharacteristic* fwc = svc ? svc->getCharacteristic(UUID_FW) : nullptr;
     if (!cmd || !evt) {
         Serial.println("[ble] el tracker no tiene el servicio de control (firmware antiguo o BLE en modo TNC2 sin control)");
         cli->disconnect(); NimBLEDevice::deleteClient(cli); setState(State::Failed); return;
@@ -99,8 +104,13 @@ static void session() {
 
     while (cli->isConnected() && !doReconnect && !doForget) {
         std::string out;
-        { std::lock_guard<std::mutex> g(mx); if (!txLines.empty()) { out = txLines.front(); txLines.pop_front(); } }
-        if (!out.empty()) {
+        std::vector<uint8_t> fw;
+        { std::lock_guard<std::mutex> g(mx); if (!txLines.empty()) { out = txLines.front(); txLines.pop_front(); } else if (!fwChunks.empty()) { fw = fwChunks.front(); fwChunks.pop_front(); } }
+        if (!fw.empty()) {
+            // imagen de firmware: escritura sin respuesta; si la pila esta ocupada, el trozo vuelve a la cola
+            if (!fwc) { std::lock_guard<std::mutex> g(mx); fwChunks.clear(); Serial.println("[ble] el tracker no tiene la caracteristica de firmware"); }
+            else if (!fwc->writeValue(fw.data(), fw.size(), false)) { std::lock_guard<std::mutex> g(mx); fwChunks.push_front(fw); delay(5); }
+        } else if (!out.empty()) {
             if (!writeLine(cmd, out)) Serial.println("[ble] fallo al escribir una orden");
             delay(30);                                  // el tracker procesa las ordenes en su bucle: no apilar
         } else {
@@ -127,11 +137,14 @@ static void task(void*) {
         doReconnect = false;
         gotDevice = false;
         setState(State::Scanning);
+        scanMx.lock();
+        scan->setScanCallbacks(&scanCb, false);
         scan->start(8000, false, true);
         while (scan->isScanning()) delay(50);
+        scanMx.unlock();
         if (gotDevice) session();
         else { setState(State::Idle); delay(1500); }
-        { std::lock_guard<std::mutex> g(mx); txLines.clear(); }
+        { std::lock_guard<std::mutex> g(mx); txLines.clear(); fwChunks.clear(); }
         delay(1000);
     }
 }
@@ -154,7 +167,7 @@ const char* stateText() {
     }
 }
 std::string peerName() { std::lock_guard<std::mutex> g(mx); return peer; }
-void send(const std::string& line) { std::lock_guard<std::mutex> g(mx); if (txLines.size() < 16) txLines.push_back(line); }
+void send(const std::string& line) { std::lock_guard<std::mutex> g(mx); if (txLines.size() < 32) txLines.push_back(line); }
 bool poll(std::string& line) { std::lock_guard<std::mutex> g(mx); if (rxLines.empty()) return false; line = rxLines.front(); rxLines.pop_front(); return true; }
 void setPin(uint32_t p) { pinCode = p % 1000000; prefs.putUInt("pin", pinCode); }
 uint32_t pin() { return pinCode; }
@@ -162,5 +175,15 @@ void setPeerAddress(const std::string& a) { { std::lock_guard<std::mutex> g(mx);
 std::string peerAddress() { return wanted(); }
 void forgetPairing() { doForget = true; doReconnect = true; }
 void reconnect() { doReconnect = true; }
+bool fwPush(const uint8_t* d, size_t n) {
+    std::lock_guard<std::mutex> g(mx);
+    if (fwChunks.size() >= 48 || st != State::Linked) return false;
+    fwChunks.emplace_back(d, d + n);
+    return true;
+}
+size_t fwQueued() { std::lock_guard<std::mutex> g(mx); return fwChunks.size(); }
+void fwClear() { std::lock_guard<std::mutex> g(mx); fwChunks.clear(); }
+void scanLock() { scanMx.lock(); }
+void scanUnlock() { scanMx.unlock(); }
 
 } // namespace trk

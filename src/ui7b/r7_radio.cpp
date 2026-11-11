@@ -242,6 +242,7 @@ static void refreshBandA(BandA& a, bool lightsOnly = false) {
     uint32_t hz = lk ? trackerHz() : 0;
     char b[160];
     if (!lk) setText(a.mod, "-");
+    else if (upper(mname) == upper(mod)) setText(a.mod, mod.c_str());
     else { snprintf(b, sizeof b, "%s \xC2\xB7 %s", mod.c_str(), upper(mname).c_str()); setText(a.mod, b); }
     setColor(a.mod, mod == "CW" ? P->amber : (mod == "POCSAG" || mod == "SAT" || mod == "AIS" || mod == "FM" || mod == "NFM") ? P->green : P->cyan);
     // alarma o mensajes del tracker
@@ -262,7 +263,13 @@ static void refreshBandA(BandA& a, bool lightsOnly = false) {
         if (mod == "LoRa" && lo >= 0 && lo < (int)M->info.loras.size()) { snprintf(b, sizeof b, "SF%d \xC2\xB7 CR4/%d", M->info.loras[lo].sf, M->info.loras[lo].cr); det = b; }
         else if (mod == "FSK") det = "G3RUH 9600";
         else if (mod == "AFSK") det = "AFSK 1200";
-        else if ((mod == "FM" || mod == "NFM") && M->fm.ok) det = M->fm.w ? "25 kHz" : "12.5 kHz";
+        else if ((mod == "FM" || mod == "NFM") && M->fm.ok) {
+            static const char* tms[] = {"", "T", "TSQL", "DCS", "1750"};
+            det = M->fm.w ? "25 kHz" : "12.5 kHz";
+            if (M->fm.tm == 1 || M->fm.tm == 2) { snprintf(b, sizeof b, " \xC2\xB7 %s %d.%d", tms[M->fm.tm], M->fm.t / 10, M->fm.t % 10); det += b; }
+            else if (M->fm.tm == 3) { snprintf(b, sizeof b, " \xC2\xB7 DCS %03d", M->fm.d); det += b; }
+            if (M->fm.m && M->fm.n >= 0) for (const auto& mm : M->fmMems) if (mm.i == M->fm.n && !mm.n.empty()) det += " \xC2\xB7 " + mm.n;
+        }
         setText(a.detail, det.c_str());
         std::string d2;
         if (isAprsMode(mode) && M->status.profile >= 0 && M->status.profile < (int)M->info.profiles.size()) d2 = M->info.profiles[M->status.profile].label;

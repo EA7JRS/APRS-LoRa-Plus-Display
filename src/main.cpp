@@ -14,6 +14,10 @@
 #include "protocol.h"
 #include "tracker_link.h"
 #include "ui.h"
+#ifdef UI_RADIO
+#include "net.h"
+#include "settings.h"
+#endif
 
 // LVGL 9 dibuja cada nivel de objetos con dos funciones que se llaman entre si (refr_obj / lv_obj_redraw)
 // y con las pestanas anidadas no cabe en los 8 KB de serie de loop(): reinicio en bucle con
@@ -35,10 +39,12 @@ static int loadTheme() {
     return t;
 }
 static void saveTheme(int t) {
+#ifndef UI_RADIO                                        // la 7B v2 guarda la suya en sus ajustes (settings.cpp)
     Preferences p;
     p.begin("display", false);
     p.putInt("theme", t);
     p.end();
+#endif
     Serial.printf("[main] paleta %d: reinicio\n", t);
     delay(100);
     ESP.restart();
@@ -86,6 +92,12 @@ void setup() {
     lv_indev_set_read_cb(indev, readTouch);
 
     trk::begin();
+#ifdef UI_RADIO
+    cfg::load();
+    board::setBacklight(cfg::get().backlight);
+    net::setModel(&model);
+    net::begin();
+#endif
     ui::begin(&model, loadTheme(), saveTheme);
     if (!ok) Serial.println("La placa no ha arrancado bien: revisar docs/HARDWARE.md");
 }
@@ -101,15 +113,33 @@ static void scheduler() {
         trk::send(proto::cmdSimple("status"));
         trk::send(proto::cmdSub(5, 2));                // sensores cada 5 s y GNSS cada 2 s
         trk::send(proto::cmdHeard(0, 12));
+#ifdef UI_RADIO
+        trk::send(proto::cmdMsgs(0, 20));
+        trk::send(proto::cmdSimple("tgtlist"));
+#else
         trk::send(proto::cmdMsgs(0, 10));
+#endif
         tStatus = tHeard = tMsgs = now;
     }
     if (s != trk::State::Linked && last == trk::State::Linked) { model.revision++; }
     last = s;
     if (s != trk::State::Linked) return;
     if (now - tStatus > 10000) { tStatus = now; trk::send(proto::cmdSimple("status")); }
+#ifdef UI_RADIO
+    // la lista entera (hasta 20 estaciones y 60 mensajes en el tracker): paginas de 12 y de 20
+    if (now - tHeard > (ui::heardVisible() ? 6000u : 20000u)) {
+        tHeard = now;
+        trk::send(proto::cmdHeard(0, 12));
+        if (model.heardTot > 12) trk::send(proto::cmdHeard(12, 12));
+    }
+    if (now - tMsgs > (ui::messagesVisible() ? 10000u : 30000u)) {
+        tMsgs = now;
+        for (int f = 0; f < model.msgTot && f < 60; f += 20) trk::send(proto::cmdMsgs(f, 20));
+    }
+#else
     if (now - tHeard > (ui::heardVisible() ? 5000u : 20000u)) { tHeard = now; trk::send(proto::cmdHeard(0, 12)); }
     if (now - tMsgs > (ui::messagesVisible() ? 8000u : 30000u)) { tMsgs = now; trk::send(proto::cmdMsgs(0, 10)); }
+#endif
 }
 
 // Instalador web: por USB contesta a "APRS-INFO?" como el resto de dispositivos APRS LoRa+.
@@ -136,11 +166,19 @@ void loop() {
     std::string line;
     int n = 0;
     while (n++ < 20 && trk::poll(line)) {
+        model.now = millis();
         proto::applyEvent(model, line.c_str());
         // un mensaje nuevo, enviado o con ack cambia el registro: se vuelve a pedir la lista
+#ifdef UI_RADIO
+        if (line.find("\"e\":\"msg\"") != std::string::npos) for (int f = 0; f < model.msgTot && f < 60; f += 20) trk::send(proto::cmdMsgs(f, 20));
+#else
         if (line.find("\"e\":\"msg\"") != std::string::npos) trk::send(proto::cmdMsgs(0, 10));
+#endif
     }
     scheduler();
+#ifdef UI_RADIO
+    net::loop();
+#endif
     static uint32_t t = 0;
     if (millis() - t > 300) { t = millis(); ui::update(); }
     lv_timer_handler();

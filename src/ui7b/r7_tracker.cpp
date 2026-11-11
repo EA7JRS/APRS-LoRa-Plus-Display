@@ -25,7 +25,7 @@ static Rows tInfo;
 static lv_obj_t *tModeRow, *tProfRow, *tLoraRow, *tCwPanel, *tCwRow, *tCwText, *tCwRxBtn, *tCwRx, *tCwRxInfo;
 static lv_obj_t *tM17Panel, *tM17To, *tM17Text, *tFmPanel, *tFmFreq, *tFmInfo, *tFmF, *tFmMems, *tFmSq;
 static lv_obj_t *tFmChips[10];
-static lv_obj_t *tBcPanel, *tBcFreq, *tBcRds, *tBcOn, *tSaPanel, *tSaInfo, *tSaCode, *tDigi;
+static lv_obj_t *tLoraLbl, *tBcPanel, *tBcFreq, *tBcRds, *tBcOn, *tSaPanel, *tSaInfo, *tSaCode, *tDigi;
 static std::string modesShown, profShown, loraShown, cwShown, memShown;
 static int pendingMode = -1;
 
@@ -133,7 +133,7 @@ static void buildTracker(lv_obj_t* root) {
     tDigi = button(br, "DIGI", onDigi, nullptr, 0, 52);
     text(bc2, "Profile", &app_cond_18, P->muted);
     tProfRow = wrapRow(bc2);
-    text(bc2, "LoRa", &app_cond_18, P->muted);
+    tLoraLbl = text(bc2, "LoRa", &app_cond_18, P->muted);
     tLoraRow = wrapRow(bc2);
     lv_obj_t* mc = card(tSa, "MODE (the tracker restarts)");
     tModeRow = wrapRow(mc);
@@ -247,6 +247,8 @@ static void refreshTracker() {
         for (size_t i = 0; i < in.profiles.size(); i++)
             chip(tProfRow, (in.profiles[i].label.empty() ? in.profiles[i].call : in.profiles[i].label + " " + in.profiles[i].call).c_str(), (int)i == st.profile, onProfile, (void*)(intptr_t)i, 44);
     }
+    show(tLoraLbl, !in.loras.empty());
+    show(tLoraRow, !in.loras.empty());
     std::string ls;
     for (size_t i = 0; i < in.loras.size(); i++) ls += std::to_string(in.loras[i].f) + ((int)i == st.lora ? "*" : "") + ";";
     if (ls != loraShown) {

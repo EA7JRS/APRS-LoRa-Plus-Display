@@ -12,7 +12,7 @@ jobs:
     build:
         runs-on: ubuntu-latest
         env:
-            BOARDS: waveshare_lcd7b waveshare_lcd35 waveshare_lcd28b waveshare_lcd169
+            BOARDS: waveshare_lcd7b waveshare_lcd7b_v2 waveshare_lcd35 waveshare_lcd28b waveshare_lcd169
         steps:
             - uses: actions/checkout@v4
 
@@ -57,6 +57,8 @@ jobs:
                   AJ=$(find .pio/libdeps -type d -path '*ArduinoJson/src' | head -1)
                   g++ -std=c++17 -Wall -Wextra -Werror -I src -I "$AJ" test/test_protocol.cpp src/protocol.cpp -o /tmp/test_protocol
                   /tmp/test_protocol
+                  g++ -std=c++17 -Wall -Wextra -Werror -I src -I "$AJ" test/test_extra.cpp src/rotor_proto.cpp src/dxcluster.cpp -o /tmp/test_extra
+                  /tmp/test_extra
 
             - name: Tamano
               run: |
