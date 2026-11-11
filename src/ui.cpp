@@ -740,7 +740,7 @@ static void buildSet() {
     lv_obj_set_style_pad_gap(at, 2, 0);
     wrapLabel(at, "APRS LoRa+ Display " DISPLAY_VERSION);
     wrapLabel(at, "\xC2\xA9 2026 Manuel - EA7JRS");
-    setColor(wrapLabel(at, "github.com/EA7JRS/APRS-LoRa-Plus"), P->acc);
+    setColor(wrapLabel(at, "ea7jrs.github.io/APRS-LoRa-Plus"), P->acc);
     setColor(wrapLabel(at, "Donate: paypal.me/ea7jrs"), P->acc);
     lv_obj_add_style(wrapLabel(at, "Scan the QR code to donate"), &stKey, 0);
     lv_obj_add_style(wrapLabel(at, "GPL-3.0-or-later"), &stKey, 0);
