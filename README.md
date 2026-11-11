@@ -1,6 +1,6 @@
 # APRS LoRa+ Display
 
-[![Donate · PayPal.me](https://img.shields.io/badge/Donate-PayPal.me%2FEA7JRS-0070E0?logo=paypal&logoColor=white)](https://paypal.me/EA7JRS)
+[![Donate · PayPal.me](https://img.shields.io/badge/Donate-paypal.me%2Fea7jrs-0070E0?logo=paypal&logoColor=white)](https://paypal.me/ea7jrs)
 
 Pantalla táctil para el tracker **APRS LoRa+** ([EA7JRS/APRS-LoRa-Plus](https://github.com/EA7JRS/APRS-LoRa-Plus)). Se conecta al tracker por **Bluetooth LE**, con el mismo servicio de control y el mismo PIN que la app de Android (`docs/BLE_CONTROL.md` del firmware).
 
