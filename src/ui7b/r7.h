@@ -98,7 +98,7 @@ std::string upper(std::string s);
 
 // ---------- navegacion ----------
 enum Scr { RADIO, FMENU, DISP, SLIST, STATION, MAP, WX, MSGS, THREAD, PAGER, DXC, TRACKER, SENSORS, SAT, ROTOR, AIS, REMOTE, CONFIG,
-           FIRMWARE, SETTINGS, ABOUT, SCR_COUNT };
+           FIRMWARE, SETTINGS, ABOUT, WXWARN, SCR_COUNT };
 struct ScreenDef {
     const char* title;
     bool keys;                                  // con teclas tactiles abajo
@@ -123,6 +123,7 @@ void error(const char* t);
 void confirm(const char* title, const char* text, const char* ok, void (*cb)(void*), void* ud = nullptr, bool danger = false);
 
 // ---------- piezas ----------
+void baseObj(lv_obj_t* o);                                           // sin estilo, sin barras, sin desplazamiento
 lv_obj_t* box(lv_obj_t* p);                                         // contenedor sin estilo, alto segun el contenido
 lv_obj_t* col(lv_obj_t* p, int gap = GAP);
 lv_obj_t* row(lv_obj_t* p, int gap = GAP);
@@ -240,6 +241,10 @@ void initMessages();    // MSGS, THREAD, PAGER
 void initTracker();     // TRACKER, SENSORS
 void initSat();         // SAT
 void initRotor();       // ROTOR
+void initWarn();        // WXWARN: avisos meteorologicos, su ventana emergente y su ajuste
+void warnStep();        // mira si hay avisos nuevos que ensenar (cada vuelta)
+int warnCount();        // avisos en vigor en la zona
+bool alertOpen();       // hay una alerta de emergencia en pantalla (manda sobre los avisos)
 void initTools();       // AIS, REMOTE, CONFIG, FIRMWARE, SETTINGS, ABOUT
 void initDx();          // DXC
 

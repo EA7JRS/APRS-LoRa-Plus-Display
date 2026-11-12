@@ -33,6 +33,9 @@ struct Settings {
     int wxMinutes = 15;
     bool wxToTracker = true, wxToRotor = true;
     // mapa: 0 OpenStreetMap, 1 IGN topografico, 2 IGN ortofoto, 3 oscuro, 4 Esri (con la clave ArcGIS del usuario), 5 radar sin teselas
+    // avisos meteorologicos: 0 apagados, 1 AEMET (clave de OpenData, por la posicion), 2 Meteoalarm (pais y texto de la zona)
+    int warnSrc = 0, warnPopup = 1, warnKm = 30;        // warnPopup: nivel desde el que salta la ventana (1 amarillo, 2 naranja, 3 rojo, 0 nunca)
+    std::string aemetKey, maCountry = "spain", maArea;
     int units = 0;                          // 0 metrico, 1 nautico (mn, kn), 2 imperial (mi, mph, F)
     int mapLayer = 0, mapZoom = 12;
     bool mapSea = false;                    // marcas nauticas de OpenSeaMap encima

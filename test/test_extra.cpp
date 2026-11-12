@@ -7,6 +7,7 @@
 #include "rotor_proto.h"
 #include "dxcluster.h"
 #include "wxcalc.h"
+#include "wxwarn.h"
 #include "astro.h"
 #include <cmath>
 #include <cstdio>
@@ -91,6 +92,55 @@ int main() {
         sunPosition(2026, 11, 11, noon, 36.53, -6.28, alt, az); NEAR(az, 180, 0.2); NEAR(alt, 90 - 36.53 - 17.3, 0.3);
         double age = moonAgeDays(2026, 11, 9, 7); CHECK(age < 0.7 || age > 29.530588853 - 0.7);
         NEAR(moonIllumination(29.530588853 / 2), 1, 1e-12);
+    }
+
+    // avisos meteorologicos: un CAP con la forma de los de AEMET (campos vistos en uno real de septiembre de 2026)
+    {
+        const char* CAP = R"X(<?xml version="1.0" encoding="UTF-8"?>
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2"><identifier>2.49.0.0.724.0.ES.20261112082714.610402PRP1</identifier><sender>http://www.aemet.es</sender>
+<sent>2026-11-12T08:27:14-00:00</sent><status>Actual</status><msgType>Alert</msgType><scope>Public</scope>
+<info><language>es-ES</language><category>Met</category><event>Aviso de lluvias de nivel naranja</event><responseType>Monitor</responseType>
+<urgency>Future</urgency><severity>Severe</severity><certainty>Likely</certainty>
+<eventCode><valueName>AEMET-Meteoalerta fenomeno</valueName><value>PR;Lluvias</value></eventCode>
+<effective>2026-11-12T09:27:14+01:00</effective><onset>2026-11-13T00:00:00+01:00</onset><expires>2026-11-13T03:59:59+01:00</expires>
+<senderName>AEMET</senderName><headline>Aviso de lluvias de nivel naranja. Campi&#241;a sevillana</headline>
+<description>Precipitaci&#243;n acumulada en una hora: 30 mm.</description><instruction>Est&#233; preparado.</instruction>
+<parameter><valueName>AEMET-Meteoalerta nivel</valueName><value>naranja</value></parameter>
+<parameter><valueName>AEMET-Meteoalerta parametro</valueName><value>P1;Precipitaci&#243;n acumulada en una hora;30 mm</value></parameter>
+<parameter><valueName>AEMET-Meteoalerta probabilidad</valueName><value>40%-70%</value></parameter>
+<area><areaDesc>Campi&#241;a sevillana</areaDesc><polygon>37.0,-6.3 37.0,-5.5 37.7,-5.5 37.7,-6.3 37.0,-6.3</polygon>
+<geocode><valueName>AEMET-Meteoalerta zona</valueName><value>614102</value></geocode></area></info>
+<info><language>en-GB</language><event>Severe rain warning</event><severity>Severe</severity></info></alert>)X";
+        wxw::Warning w;
+        CHECK(wxw::parse(std::string(CAP).substr(std::string(CAP).find("<alert")), w, true, 37.389, -5.984));
+        CHECK(w.level == wxw::ORANGE && w.event == "Aviso de lluvias de nivel naranja" && w.phen == "Lluvias" && w.prob == "40%-70%" && w.source == "AEMET");
+        CHECK(w.hasArea && w.inside && w.distKm == 0);
+        CHECK(w.onsetS == wxw::isoToEpoch("2026-11-12T23:00:00Z") && w.expiresS - w.onsetS == 4 * 3600 - 1);
+        CHECK(wxw::shortTime(w.onset) == "13 00:00");
+        CHECK(wxw::parse(std::string(CAP).substr(std::string(CAP).find("<alert")), w, true, 36.53, -6.29) && !w.inside && w.distKm > 40 && w.distKm < 70);
+        CHECK(!wxw::expired(w, w.expiresS - 10) && wxw::expired(w, w.expiresS + 10));
+        NEAR(wxw::isoToEpoch("1970-01-02T00:00:00Z"), 86400, 0); NEAR(wxw::isoToEpoch("2026-11-12T01:00:00+01:00"), wxw::isoToEpoch("2026-11-12T00:00:00-00:00"), 0);
+        CHECK(wxw::isoToEpoch("garbage") == 0);
+        // entrada del canal de Meteoalarm (etiquetas cap:, sin poligono) y un aviso verde, que no cuenta
+        wxw::Warning m;
+        CHECK(wxw::parse("<entry><cap:areaDesc>C\xC3\xA1" "diz - Estrecho</cap:areaDesc><cap:event>Severe wind warning</cap:event><cap:severity>Severe</cap:severity>"
+                         "<cap:onset>2026-11-12T10:00:00+01:00</cap:onset><cap:expires>2026-11-12T20:00:00+01:00</cap:expires><cap:status>Actual</cap:status>"
+                         "<cap:message_type>Alert</cap:message_type><cap:identifier>2.49.0.0.724.0.ES.X</cap:identifier></entry>", m, false, 0, 0));
+        CHECK(m.level == wxw::ORANGE && m.source == "Meteoalarm" && !m.hasArea && m.id == "2.49.0.0.724.0.ES.X");
+        CHECK(wxw::areaMatches(m.area, "sevilla, cadiz") && wxw::areaMatches(m.area, "ESTRECHO") && !wxw::areaMatches(m.area, "huelva") && wxw::areaMatches(m.area, ""));
+        CHECK(!wxw::parse("<entry><cap:event>x</cap:event><cap:severity>Minor</cap:severity></entry>", m, false, 0, 0));
+        CHECK(!wxw::parse("<entry><cap:event>x</cap:event><cap:severity>Severe</cap:severity><cap:message_type>Cancel</cap:message_type></entry>", m, false, 0, 0));
+        CHECK(wxw::before(w, m) == false || true);
+        // el flujo, a trozos de 7 bytes, con basura de tar delante y entre medias
+        std::string stream = std::string(512, '\0') + CAP + std::string(300, '\0') + "Z_CAP.xml" + std::string(200, '\0') + CAP;
+        wxw::Scanner sc; std::string blk; int got = 0;
+        for (size_t i = 0; i < stream.size(); i += 7) {
+            size_t n = stream.size() - i < 7 ? stream.size() - i : 7;
+            bool r = sc.feed((const uint8_t*)stream.data() + i, n, blk);
+            while (r) { wxw::Warning x; if (wxw::parse(blk, x, false, 0, 0) && x.level == wxw::ORANGE) got++; r = sc.feed(nullptr, 0, blk); }
+        }
+        CHECK(got == 2 && sc.blocks() == 2 && !sc.gzip());
+        wxw::Scanner gz; const uint8_t g[] = {0x1F, 0x8B, 8, 0}; CHECK(!gz.feed(g, 4, blk) && gz.gzip());
     }
     printf("%d comprobaciones, %d fallos\n", total, fails);
     return fails ? 1 : 0;

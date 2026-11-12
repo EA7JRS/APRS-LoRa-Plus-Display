@@ -12,6 +12,8 @@
 #include "settings.h"
 #include "tracker_link.h"
 #include "maptiles.h"
+#include <algorithm>
+#include <ctime>
 #include "board.h"
 #include <SD.h>
 #include <SPI.h>
@@ -400,8 +402,99 @@ static void doFwInstall() {
     fwSet(5, "Installed " + r.version + ": the tracker restarts and links again", r.size, r.size);
 }
 
+// ------------------------------------------------------------------ avisos meteorologicos
+static net::Warnings warnState;
+static volatile bool warnReq = false;
+static uint32_t warnLast = 0;
+static bool warnFailed = false;
+Warnings warnings() { std::lock_guard<std::mutex> g(mx); return warnState; }
+void warnFetch() { warnReq = true; }
+static void warnStatus(const std::string& t) { std::lock_guard<std::mutex> g(mx); warnState.status = t; }
+
+// Recibe el cuerpo segun llega, corta los avisos y se queda con los que tocan
+struct WarnSink : public Stream {
+    wxw::Scanner sc;
+    std::vector<wxw::Warning> keep;
+    bool aemet = false;
+    int64_t nowS = 0;
+    size_t bytes = 0;
+    void take(const std::string& blk) {
+        const cfg::Settings& st = cfg::get();
+        wxw::Warning w;
+        if (!wxw::parse(blk, w, posOk, posLat, posLon) || wxw::expired(w, nowS)) return;
+        const bool mine = w.hasArea ? (w.inside || w.distKm <= st.warnKm) : (!aemet || !st.maArea.empty()) && wxw::areaMatches(w.area, st.maArea);
+        if (!mine) return;
+        for (const wxw::Warning& k : keep) if (k.event == w.event && k.area == w.area && k.onset == w.onset) return;
+        if (keep.size() < 40) keep.push_back(w);
+    }
+    size_t write(const uint8_t* b, size_t n) override {
+        bytes += n;
+        std::string blk;
+        bool r = sc.feed(b, n, blk);
+        while (r) { take(blk); r = sc.feed(nullptr, 0, blk); }
+        return n;
+    }
+    size_t write(uint8_t c) override { return write(&c, 1); }
+    int available() override { return 0; }
+    int read() override { return -1; }
+    int peek() override { return -1; }
+    void flush() override {}
+};
+static int streamGet(const std::string& url, Stream& sink) {
+    NetworkClientSecure tls;
+    tls.setInsecure();
+    HTTPClient h;
+    h.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    h.setTimeout(15000);
+    h.setUserAgent("APRS-LoRa-Plus-Display/" DISPLAY_VERSION " (EA7JRS)");
+    if (!h.begin(tls, url.c_str())) return 0;
+    int code = h.GET();
+    if (code == 200 && h.writeToStream(&sink) < 0) code = -1;
+    h.end();
+    return code;
+}
+static void doWarnings() {
+    const cfg::Settings st = cfg::get();
+    warnFailed = true;
+    if (!online()) { warnStatus("no WiFi"); return; }
+    std::string url;
+    WarnSink sink;
+    sink.aemet = st.warnSrc == 1;
+    sink.nowS = timeValid() ? (int64_t)time(nullptr) : 0;
+    if (st.warnSrc == 1) {
+        if (st.aemetKey.empty()) { warnStatus("no AEMET OpenData key (Setup)"); return; }
+        if (!posOk && st.maArea.empty()) { warnStatus("no position yet (tracker GNSS) and no area text"); return; }
+        // AEMET contesta con la direccion de los datos: un archivo con todos los avisos CAP en vigor de Espana
+        std::string body;
+        if (!httpGet("https://opendata.aemet.es/opendata/api/avisos_cap/ultimoelaborado/area/esp?api_key=" + st.aemetKey, body, 4096)) { warnStatus("AEMET: no answer (key or network)"); return; }
+        JsonDocument d;
+        if (deserializeJson(d, body) || !d["datos"].is<const char*>()) { warnStatus("AEMET: unexpected answer"); return; }
+        url = d["datos"].as<const char*>();
+    } else {
+        if (st.maCountry.empty()) { warnStatus("no country (Setup)"); return; }
+        url = "https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-" + st.maCountry;
+    }
+    warnStatus("downloading...");
+    const int code = streamGet(url, sink);
+    if (code != 200) { char b[48]; snprintf(b, sizeof b, "download failed (%d)", code); warnStatus(b); return; }
+    if (sink.sc.gzip()) { warnStatus("the file came compressed: not supported yet"); return; }
+    std::sort(sink.keep.begin(), sink.keep.end(), wxw::before);
+    char b[96];
+    snprintf(b, sizeof b, "%s: %u in your area of %u in force (%u kB)", st.warnSrc == 1 ? "AEMET" : "Meteoalarm", (unsigned)sink.keep.size(), (unsigned)sink.sc.blocks(),
+             (unsigned)(sink.bytes / 1024));
+    std::lock_guard<std::mutex> g(mx);
+    warnState.list = sink.keep;
+    warnState.status = b;
+    warnState.seq++;
+    warnFailed = false;
+}
+
 static void jobsTask(void*) {
     for (;;) {
+        // avisos: al pedirlos, al arrancar con WiFi y cada 15 min (a los 3 si la ultima vez fallo)
+        if (cfg::get().warnSrc && (warnReq || (online() && (!warnLast || millis() - warnLast > (warnFailed ? 180000u : 900000u))))) {
+            warnReq = false; warnLast = millis() | 1; doWarnings();
+        } else if (warnReq) { warnReq = false; warnStatus("off (choose a source in Setup)"); }
         if (fwInstallReq) { fwInstallReq = false; doFwInstall(); }
         if (fwCheckReq) { fwCheckReq = false; doFwCheck(); }
         if (wxReq) { wxReq = false; doWeather(); wxLast = millis(); }

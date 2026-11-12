@@ -5,6 +5,8 @@
 // Red de la 7B v2: WiFi, caja del rotor (TCP o BLE), DX Cluster (telnet), tiempo de internet (OpenWeatherMap) y firmware
 // del tracker por internet (se baja aqui y se manda por BLE). Cada enlace vive en su tarea; la interfaz solo llama a esto.
 #pragma once
+#include "wxwarn.h"
+#include <vector>
 #include <cstdint>
 #include <string>
 
@@ -41,6 +43,12 @@ bool dxPoll(std::string& line);
 // Tiempo de internet
 std::string wxStatus();             // "OWM Sevilla 24.1 C, 3 min ago" o el motivo
 void wxNow();                       // bajarlo ya
+
+// Avisos meteorologicos (wxwarn.h): se bajan cada 15 min de AEMET OpenData (con la clave del usuario, los que tocan a la
+// posicion) o del canal de Meteoalarm del pais (los de las zonas cuyo nombre lleve el texto de Ajustes).
+struct Warnings { std::vector<wxw::Warning> list; uint32_t seq = 0; std::string status; };
+Warnings warnings();
+void warnFetch();                   // bajarlos ya
 
 // Mapa de teselas (maptiles.h): reserva la memoria, monta la microSD y arranca la tarea que las baja. Se puede llamar mas veces.
 void mapBegin();

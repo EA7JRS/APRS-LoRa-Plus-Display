@@ -41,6 +41,13 @@ void load() {
     s.wxMinutes = p.getInt("wxmin", s.wxMinutes);
     s.wxToTracker = p.getBool("wxtr", s.wxToTracker);
     s.wxToRotor = p.getBool("wxrot", s.wxToRotor);
+    s.warnSrc = p.getInt("wsrc", s.warnSrc);
+    s.warnPopup = p.getInt("wpop", s.warnPopup);
+    s.warnKm = p.getInt("wkm", s.warnKm);
+    s.aemetKey = str(p, "aemet", s.aemetKey);
+    s.maCountry = str(p, "macty", s.maCountry);
+    s.maArea = str(p, "maarea", s.maArea);
+    if (s.warnSrc < 0 || s.warnSrc > 2) s.warnSrc = 0;
     s.units = p.getInt("units", s.units);
     if (s.units < 0 || s.units > 2) s.units = 0;
     s.mapLayer = p.getInt("maplay", s.mapLayer);
@@ -79,6 +86,12 @@ void save() {
     p.putInt("wxmin", s.wxMinutes);
     p.putBool("wxtr", s.wxToTracker);
     p.putBool("wxrot", s.wxToRotor);
+    p.putInt("wsrc", s.warnSrc);
+    p.putInt("wpop", s.warnPopup);
+    p.putInt("wkm", s.warnKm);
+    p.putString("aemet", s.aemetKey.c_str());
+    p.putString("macty", s.maCountry.c_str());
+    p.putString("maarea", s.maArea.c_str());
     p.putInt("units", s.units);
     p.putInt("maplay", s.mapLayer);
     p.putInt("mapz", s.mapZoom);

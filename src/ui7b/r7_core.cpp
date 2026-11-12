@@ -111,7 +111,7 @@ bool utcNow(int& y, int& mo, int& d, int& h, int& mi, int& s) {
 }
 
 // ------------------------------------------------------------------ piezas
-static void baseObj(lv_obj_t* o) {
+void baseObj(lv_obj_t* o) {
     lv_obj_remove_style_all(o);
     lv_obj_set_scrollable(o, false);
 }
@@ -994,6 +994,8 @@ void openSideMenu() {
     int wx = 0; for (auto& x : M->heard) if (x.wx.ok) wx++;
     snprintf(b, sizeof b, "%d", wx);
     sideItem(p, "Weather stations", b, WX, s == WX);
+    snprintf(b, sizeof b, "%d", warnCount());
+    sideItem(p, "Weather warnings", warnCount() ? b : "", WXWARN, s == WXWARN);
     snprintf(b, sizeof b, "%d", M->msgUnread);
     sideItem(p, "Messages", M->msgUnread ? b : "", MSGS, s == MSGS);
     sideItem(p, "DAPNET pager", "", PAGER, s == PAGER);
@@ -1029,6 +1031,7 @@ static bool alertEai = false;
 static std::string alertClosedCall;
 static uint32_t alertClosedAt = 0;
 static void alertForget() { alertClosedEq = M->leds.eq; alertClosedCall = M->leds.ec; alertClosedAt = nowMs(); }
+bool alertOpen() { return alert != nullptr; }
 static void alertDrop() { if (alert) { lv_obj_delete(alert); alert = nullptr; } }
 static void alertClose(lv_event_t*) { alertDrop(); alertForget(); }
 static void alertSilence(lv_event_t*) { trk::send(proto::Cmd("alarm").text("s", "off").str()); }
@@ -1221,7 +1224,7 @@ void beginRadio(proto::Model* model, void (*onTheme)(int)) {
     lv_obj_add_event_cb(banner, bannerClick, LV_EVENT_CLICKED, nullptr);
     lv_obj_set_hidden(banner, true);
 
-    initRadio(); initStations(); initMessages(); initTracker(); initSat(); initRotor(); initTools(); initDx();
+    initRadio(); initStations(); initMessages(); initTracker(); initSat(); initRotor(); initTools(); initDx(); initWarn();
     stack.clear();
     stack.push_back({RADIO, ""});
     showTop(SCR_COUNT);
@@ -1251,6 +1254,7 @@ void updateRadio() {
         forceRefresh = false;
         refreshAlert();
         wxTrack();
+        warnStep();
         Scr s = top();
         if (defs[s].refresh) defs[s].refresh();
         if (changed) { refreshStatus(); refreshTouchKeys(); }

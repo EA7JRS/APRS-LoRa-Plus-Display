@@ -28,6 +28,7 @@ static void kGps() { cfg::get().dispPage = 1; go(DISP); requestRefresh(); }
 static void kWx() { go(WX); }
 static void kMap() { go(MAP); }
 static void kDisp() { go(DISP); }
+static void kWarn() { go(WXWARN); }
 static void kPager() { go(PAGER); }
 static void kDigi() { send(proto::Cmd("digi").flag("on", !M->status.digi).str()); send(proto::cmdSimple("status")); }
 static void kDx() { go(DXC); }
@@ -54,9 +55,10 @@ static const std::vector<FKey> FK = {
     {"ROTOR", "ROTOR", kRotor}, {"AIS", "AIS", kAis}, {"CWRX", "CW RX", kCwrx}, {"MODE", "MODE", kGoTracker},
     {"REMOTE", "REMOTE", kRemote}, {"CONFIG", "CONFIG", kConfig}, {"FIRMWARE", "FIRMWARE", kFirmware}, {"SENSORS", "SENSORS", kSensors},
     {"SETTINGS", "SETTINGS", kSettings}, {"ABOUT", "ABOUT", kAbout}, {"REBOOT", "REBOOT", kReboot}, {"TRACKER", "TRACKER", kGoTracker},
+    {"WARN", "WARNINGS", kWarn},
 };
 static const char* PAGES[3][12] = {
-    {"SLIST", "MSG", "BEACON", "BCN", "GPS", "WX", "MAP", "DISP", "PAGER", "DIGI", nullptr, nullptr},
+    {"SLIST", "MSG", "BEACON", "BCN", "GPS", "WX", "MAP", "DISP", "PAGER", "DIGI", "WARN", nullptr},
     {"DX", "SAT", "ROTOR", "AIS", "CWRX", "MODE", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr},
     {"REMOTE", "CONFIG", "FIRMWARE", "SENSORS", "SETTINGS", "TRACKER", "REBOOT", "ABOUT", nullptr, nullptr, nullptr, nullptr},
 };
