@@ -25,5 +25,7 @@ Entorno `waveshare_lcd7b_hamclock`, en main desde la 5.4.3 (pedido de Manuel; **
 
 - **Fórmulas (2026-11-12, rama `formulas`; Manuel: «Todas»)**: del núcleo del plotter (`astro`, `wind`, `wxcalc`, `wmm`): Beaufort en Network > *True wind* y Sensors > *Wind*, rocío y sensación en *Air*, filas *Sun* y *Moon* (UTC) en Network, y `boat_link` pone el rumbo verdadero con la declinación del WMM si solo llega HDG / HDM.
 
+- **Avisos oficiales** (2026-11-12, rama `alertas`): los del tracker (eventos `alertsv` / `alerts` / `spacewx` en `protocol.*`, 48 comprobaciones) y los de la WiFi propia (`lib/aprs_links/alerts_net`, `-DAPRS_LINKS_ALERTS`); tarjetas *Official alerts* y *Space weather* en Sensors, ventana emergente en `lv_layer_top`, *Alert zones* y *Country (ISO)* en Network (Preferences `azones`, `acountry`). Sin probar en las placas.
+
 ## Cómo trabajar
 - No publicar releases ni tocar otros repositorios sin que lo pida Manuel (las etiquetas y releases las crea él).
