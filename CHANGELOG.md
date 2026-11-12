@@ -1,6 +1,6 @@
 # Changelog
 
-## Sin publicar
+## 5.4.2 — 2026-11-12
 - **Hora**: el reloj se pone con el GNSS del tracker o el GPS de la red (RMC / ZDA) y, sin GPS, con NTP: `ntp.roa.es` (hora oficial de España, ROA), de reserva `hora.roa.es` y `pool.ntp.org` (`tsync` y `timesync` de las librerías del plotter). Settings > Link > *Clock*.
 - **Pestaña Network: red local con la conectividad del plotter** (`lib/plotter_core` y `lib/aprs_links`, copiadas de APRS-LoRa-Plus-Plotter con `tools/sync_links.sh`). WiFi cliente, un servidor TCP (NMEA 0183, gpsd o Signal K; dirección vacía = el móvil que da la WiFi, puerto 10110), escucha UDP y tiempo de OpenWeatherMap. Datos del barco con su origen (LAN, TRK, WEB) y prioridad de fuentes; la posición del GNSS del tracker entra también, por debajo de la red. Blancos AIS de la red con distancia, demora y CPA (riesgo en rojo); avisos de Signal K. Configuración guardada en la pantalla (`display/wifiSsid`, `tcpKind`...). En todas las placas. Sin probar en las placas ni con una red real.
 
