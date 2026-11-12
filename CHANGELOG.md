@@ -1,5 +1,8 @@
 # Changelog
 
+## Sin publicar
+- **Pestaña Network: red local con la conectividad del plotter** (`lib/plotter_core` y `lib/aprs_links`, copiadas de APRS-LoRa-Plus-Plotter con `tools/sync_links.sh`). WiFi cliente, un servidor TCP (NMEA 0183, gpsd o Signal K; dirección vacía = el móvil que da la WiFi, puerto 10110), escucha UDP y tiempo de OpenWeatherMap. Datos del barco con su origen (LAN, TRK, WEB) y prioridad de fuentes; la posición del GNSS del tracker entra también, por debajo de la red. Blancos AIS de la red con distancia, demora y CPA (riesgo en rojo); avisos de Signal K. Configuración guardada en la pantalla (`display/wifiSsid`, `tcpKind`...). En todas las placas. Sin probar en las placas ni con una red real.
+
 ## 5.4.1 — 2026-11-10
 - Pestaña Sensors: pronóstico y tendencia de 3 h del tiempo de internet del tracker.
 - **Reinicio en bucle arreglado** (7B, 5.4.0 y 5.4.1: «Stack canary watchpoint triggered (loopTask)»). LVGL 9 dibuja cada nivel de objetos con dos funciones que se llaman entre sí y con las pestañas anidadas no cabía en los 8 KB de pila de `loop()`; ahora 32 KB. Cada minuto se escribe por el puerto serie la pila que queda libre (`[main] pila libre`).

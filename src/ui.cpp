@@ -10,6 +10,7 @@
  */
 #include "ui.h"
 #include "board.h"
+#include "boat_link.h"
 #include "tracker_link.h"
 #include "ui_assets.h"
 #include <lvgl.h>
@@ -96,7 +97,7 @@ static Layout makeLayout(int w, int h) {
 
 static proto::Model* M = nullptr;
 static uint32_t drawnRev = 0xFFFFFFFF;
-static lv_obj_t *scr, *tabs, *tabDash, *tabHeard, *tabMsgs, *tabSens, *tabSat, *tabMirror, *tabPages, *tabSet;
+static lv_obj_t *scr, *tabs, *tabDash, *tabHeard, *tabMsgs, *tabSens, *tabSat, *tabMirror, *tabPages, *tabNet, *tabSet;
 static lv_obj_t* kb;
 
 // cabecera
@@ -115,6 +116,9 @@ static lv_obj_t *lblMirrorTitle, *lblMirror;
 static lv_obj_t* tblPages;
 // ajustes
 static lv_obj_t *taPin, *taPeer, *lblPinRes, *lblBack;
+// red local (pestana Network)
+static lv_obj_t *taSsid, *taPass, *taHost, *taPort, *taUdp, *taOwm, *btnKind, *lblNetRes;
+static int netKind = 0;
 static int backlight = 100;
 
 // ---------- estilos ----------
@@ -263,6 +267,7 @@ static lv_obj_t* button(lv_obj_t* parent, const char* t, lv_event_cb_t cb, void*
 // Lista clave / valor (como la pantalla de informacion del rotor). Las filas se crean al vuelo y las que sobran se esconden.
 struct Kv {
     lv_obj_t* box = nullptr;
+    int kw = 0;                                                     // ancho de la columna de claves (0 = el de la pantalla)
     std::vector<lv_obj_t*> rows;
     size_t n = 0;
     void create(lv_obj_t* parent, const char* title = nullptr) { box = card(parent, title); lv_obj_set_style_pad_row(box, L.sz == Size::S ? 2 : L.pad / 2, 0); }
@@ -274,7 +279,7 @@ struct Kv {
             lv_obj_set_style_pad_column(r, L.pad, 0);
             lv_obj_t* kl = label(r, "");
             lv_obj_add_style(kl, &stKey, 0);
-            lv_obj_set_width(kl, L.keyW);
+            lv_obj_set_width(kl, kw ? kw : L.keyW);
             lv_label_set_long_mode(kl, LV_LABEL_LONG_MODE_CLIP);
             lv_obj_set_height(kl, lv_font_get_line_height(L.fBase));
             lv_obj_t* vl = label(r, "");
@@ -300,7 +305,7 @@ struct Kv {
     }
     void end() { for (size_t i = n; i < rows.size(); i++) lv_obj_set_hidden(rows[i], true); }
 };
-static Kv kvDash, kvSens, kvNet, kvSet;
+static Kv kvDash, kvSens, kvNet, kvSet, kvBoat, kvLan;
 
 // ---------- columnas de las tablas: cuales salen y su peso en el ancho, segun la pantalla ----------
 struct Col { int id; float weight; const char* title; };
@@ -758,6 +763,190 @@ static void buildSet() {
     lv_obj_add_style(wrapLabel(at, "GPL-3.0-or-later"), &stKey, 0);
 }
 
+// ---------- Network: la conectividad del plotter (WiFi, servidor TCP NMEA / gpsd / Signal K, UDP, tiempo de internet) ----------
+static void showKind() {
+    char b[40];
+    snprintf(b, sizeof b, "Server: %s", boat::kindName(netKind));
+    lv_label_set_text(lv_obj_get_child(btnKind, 0), b);
+}
+static void onKind(lv_event_t*) {                                // Off > NMEA 0183 > gpsd > Signal K; el puerto sigue al tipo
+    const int old = netKind;
+    netKind = (netKind + 1) % net::TCP_KINDS;
+    const char* p = lv_textarea_get_text(taPort);
+    if (!*p || atoi(p) == boat::defaultPort(old)) {
+        char b[8];
+        snprintf(b, sizeof b, "%d", boat::defaultPort(netKind));
+        lv_textarea_set_text(taPort, b);
+    }
+    showKind();
+}
+static void onNetSave(lv_event_t*) {
+    net::Config c = boat::config();
+    snprintf(c.ssid, sizeof c.ssid, "%s", lv_textarea_get_text(taSsid));
+    snprintf(c.pass, sizeof c.pass, "%s", lv_textarea_get_text(taPass));
+    snprintf(c.host, sizeof c.host, "%s", lv_textarea_get_text(taHost));
+    snprintf(c.owmKey, sizeof c.owmKey, "%s", lv_textarea_get_text(taOwm));
+    c.tcpKind = netKind;
+    const int port = atoi(lv_textarea_get_text(taPort)), udp = atoi(lv_textarea_get_text(taUdp));
+    c.tcpPort = port > 0 && port < 65536 ? port : boat::defaultPort(netKind);
+    c.udpPort = udp > 0 && udp < 65536 ? udp : 0;
+    boat::setConfig(c);
+    lv_label_set_text(lblNetRes, c.ssid[0] ? "Saved. Connecting..." : "Saved. Wi-Fi off (no network name)");
+}
+// Campo con su nombre encima (el texto de ayuda desaparece al escribir)
+static lv_obj_t* labeledField(lv_obj_t* parent, const char* key, const char* hint, int w, int maxLen, const char* accepted = nullptr) {
+    lv_obj_t* b = plain(parent);
+    lv_obj_set_flex_flow(b, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_gap(b, 2, 0);
+    lv_obj_add_style(label(b, key), &stKey, 0);
+    return field(b, hint, w, maxLen, accepted);
+}
+
+static void buildNet() {
+    page(tabNet, LV_FLEX_FLOW_ROW_WRAP);
+    kvBoat.create(tabNet, "Boat data");
+    lv_obj_t* right = tabNet;                                     // 7": a la derecha, la red y su configuracion una debajo de otra
+    if (L.sz == Size::L) {
+        lv_obj_set_width(kvBoat.box, LV_PCT(55));
+        right = plain(tabNet);
+        lv_obj_set_width(right, LV_PCT(42));
+        lv_obj_set_flex_flow(right, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_pad_gap(right, L.pad, 0);
+        kvBoat.kw = 150;
+        kvLan.kw = 110;
+    } else {
+        kvLan.kw = L.keyW * 3 / 4;
+    }
+    kvLan.create(right, "Network");
+    lv_obj_t* c = card(right, "Wi-Fi and server");
+    const net::Config& cf = boat::config();
+    netKind = cf.tcpKind;
+    const int wBig = L.sz == Size::L ? LV_PCT(100) : L.sz == Size::M ? 210 : 200, wNum = L.sz == Size::L ? 150 : 100;
+    char b[8];
+    lv_obj_t* r1 = row(c);
+    taSsid = labeledField(r1, "Wi-Fi network", "name", wBig, 32);
+    lv_textarea_set_text(taSsid, cf.ssid);
+    taPass = labeledField(r1, "Password", "password", wBig, 64);
+    lv_textarea_set_password_mode(taPass, true);
+    lv_textarea_set_text(taPass, cf.pass);
+    lv_obj_t* r2 = row(c);
+    btnKind = button(r2, "", onKind, nullptr, L.sz == Size::L ? 300 : 0);
+    showKind();
+    taHost = labeledField(r2, "Server address", "empty = phone hotspot", wBig, 39);
+    lv_textarea_set_text(taHost, cf.host);
+    taPort = labeledField(r2, "Port", "10110", wNum, 5, "0123456789");
+    snprintf(b, sizeof b, "%d", cf.tcpPort);
+    lv_textarea_set_text(taPort, b);
+    lv_obj_t* r3 = row(c);
+    taUdp = labeledField(r3, "UDP port (0 = off)", "10110", wNum, 5, "0123456789");
+    snprintf(b, sizeof b, "%d", cf.udpPort);
+    lv_textarea_set_text(taUdp, b);
+    taOwm = labeledField(r3, "OpenWeatherMap key (optional)", "key", wBig, 39);
+    lv_textarea_set_text(taOwm, cf.owmKey);
+    lv_obj_t* r4 = row(c);
+    button(r4, L.sz == Size::S ? "Save" : "Save and connect", onNetSave, nullptr, L.sz == Size::L ? 260 : 0, true);
+    lblNetRes = label(r4, "");
+    setColor(lblNetRes, P->acc);
+    lv_obj_add_style(wrapLabel(c, "gpsd: TCP 2947. Signal K: TCP 8375. Phone app (NMEA server on): empty address, port 10110. "
+                                  "Wind instrument and NMEA by UDP: UDP port 10110."), &stKey, 0);
+}
+
+static void fmtAgeMs(char* b, size_t n, uint32_t ms) { fmtAge(b, n, (int)(ms / 1000)); }
+
+// Lado: babor / estribor para el angulo del viento aparente (-180..180, positivo a estribor)
+static void fillBoat(uint32_t now) {
+    using plotter::Key;
+    plotter::DataStore& s = boat::store();
+    kvBoat.begin();
+    auto colorOf = [&](Key k) { return s.quality(k) == plotter::Quality::Estimated ? P->yel : P->fg; };
+    auto src = [&](Key k) { return boat::sourceName(s.source(k, now)); };
+    double a = 0, b2 = 0;
+    bool any = false;
+    if (s.get(Key::Lat, now, a) && s.get(Key::Lon, now, b2)) {
+        kvBoat.addf("Position", P->fg, "%.4f %c  %.4f %c  %s", std::fabs(a), a < 0 ? 'S' : 'N', std::fabs(b2), b2 < 0 ? 'W' : 'E', src(Key::Lat));
+        any = true;
+    }
+    struct { Key k; const char* name; const char* fmt; } one[] = {
+        {Key::Sog, "SOG", "%.1f kn"}, {Key::Cog, "COG", "%03.0f\xC2\xB0"}, {Key::Heading, "Heading", "%03.0f\xC2\xB0"},
+        {Key::Stw, "STW", "%.1f kn"}, {Key::Depth, "Depth", "%.1f m"}, {Key::WaterTemp, "Water temp.", "%.1f \xC2\xB0" "C"}};
+    for (auto& o : one)
+        if (s.get(o.k, now, a)) { char v[40]; snprintf(v, sizeof v, o.fmt, a); kvBoat.addf(o.name, colorOf(o.k), "%s  %s", v, src(o.k)); any = true; }
+    if (s.get(Key::Awa, now, a) && s.get(Key::Aws, now, b2)) {
+        kvBoat.addf("Apparent wind", P->fg, "%.0f\xC2\xB0 %s, %.1f kn  %s", std::fabs(a), a < 0 ? "port" : "stbd", b2, src(Key::Aws));
+        any = true;
+    }
+    if (s.get(Key::Tws, now, a)) {
+        char d[24] = "";
+        if (s.get(Key::Twd, now, b2)) snprintf(d, sizeof d, " from %03.0f\xC2\xB0", b2);
+        double g = 0;
+        char gs[24] = "";
+        if (s.get(Key::Gust, now, g)) snprintf(gs, sizeof gs, ", gusts %.0f", g);
+        kvBoat.addf("True wind", colorOf(Key::Tws), "%.1f kn%s%s  %s", a, d, gs, src(Key::Tws));
+        any = true;
+    }
+    if (s.get(Key::Pressure, now, a)) { kvBoat.addf("Pressure", colorOf(Key::Pressure), "%.0f hPa  %s", a, src(Key::Pressure)); any = true; }
+    if (s.get(Key::AirTemp, now, a)) {
+        char h[16] = "";
+        if (s.get(Key::Humidity, now, b2)) snprintf(h, sizeof h, ", %.0f %%", b2);
+        kvBoat.addf("Air", colorOf(Key::AirTemp), "%.1f \xC2\xB0" "C%s  %s", a, h, src(Key::AirTemp));
+        any = true;
+    }
+    // AIS: cuantos y los mas cercanos (los peligrosos primero)
+    plotter::AisTargets& t = boat::targets();
+    if (t.count()) {
+        const int dz = t.dangerousCount();
+        kvBoat.addf("AIS", P->fg, "%d targets", t.count());
+        if (dz) kvBoat.addf("Collision risk", P->red, "%d", dz);
+        int idx[3];
+        const int n = t.sorted(idx, L.sz == Size::S ? 2 : 3);
+        for (int i = 0; i < n; i++) {
+            const plotter::AisTarget& v = t.at(idx[i]);
+            char nm[40];
+            if (v.name[0]) snprintf(nm, sizeof nm, "%s", v.name); else snprintf(nm, sizeof nm, "%lu", (unsigned long)v.mmsi);
+            if (v.hasRange && v.hasCpa && v.tcpaMin > 0)
+                kvBoat.addf(nm, v.dangerous ? P->red : P->fg, "%.2f nm %03.0f\xC2\xB0, CPA %.2f nm in %.0f min", v.rangeNm, v.bearing, v.cpaNm, v.tcpaMin);
+            else if (v.hasRange)
+                kvBoat.addf(nm, P->fg, "%.2f nm %03.0f\xC2\xB0", v.rangeNm, v.bearing);
+            else
+                kvBoat.add(nm, "no position", P->mut);
+        }
+        any = true;
+    }
+    const boat::Stats& bs = boat::stats();
+    if (bs.skSeq && (!strcmp(bs.skState, "alarm") || !strcmp(bs.skState, "emergency")))
+        kvBoat.addf("Signal K", P->red, "%s: %s", bs.skState, bs.skMessage[0] ? bs.skMessage : bs.skKey);
+    if (!any) kvBoat.add("-", "No data yet: set up the network below", P->mut);
+    kvBoat.end();
+}
+
+static void fillLan(uint32_t now) {
+    const net::Status& ns = net::status();
+    const net::Config& cf = boat::config();
+    const boat::Stats& bs = boat::stats();
+    char b[64];
+    kvLan.begin();
+    if (!cf.ssid[0]) kvLan.add("Wi-Fi", "off", P->mut);
+    else if (ns.wifi) kvLan.addf("Wi-Fi", P->green, "%s, %d dBm", cf.ssid, ns.rssi);
+    else kvLan.addf("Wi-Fi", P->yel, "connecting to %s", cf.ssid);
+    if (ns.wifi) kvLan.add("IP", ns.ip);
+    if (cf.tcpKind != net::TCP_OFF) {
+        kvLan.addf("Server", ns.tcp ? P->green : P->yel, "%s %s:%d, %s", boat::kindName(cf.tcpKind), cf.host[0] ? cf.host : "gateway", cf.tcpPort,
+                   ns.tcp ? "connected" : "waiting");
+    } else {
+        kvLan.add("Server", "off", P->mut);
+    }
+    if (cf.udpPort) kvLan.addf("UDP", P->fg, "port %d, %lu lines", cf.udpPort, (unsigned long)bs.udpLines);
+    if (cf.tcpKind == net::TCP_SIGNALK) kvLan.addf("Received", P->fg, "%lu lines, %lu values", (unsigned long)bs.tcpLines, (unsigned long)bs.skValues);
+    else if (cf.tcpKind != net::TCP_OFF) kvLan.addf("Received", P->fg, "%lu lines", (unsigned long)bs.tcpLines);
+    if (bs.netLastMs) { fmtAgeMs(b, sizeof b, now - bs.netLastMs); kvLan.addf("Last data", P->fg, "%s ago", b); }
+    if (bs.aisMessages) kvLan.addf("AIS messages", P->fg, "%lu", (unsigned long)bs.aisMessages);
+    if (cf.owmKey[0]) {
+        if (bs.wxMs) { fmtAgeMs(b, sizeof b, now - bs.wxMs); kvLan.addf("Weather", P->yel, "%s, %s ago (OpenWeatherMap)", bs.wxPlace[0] ? bs.wxPlace : "-", b); }
+        else kvLan.addf("Weather", P->mut, "%s", ns.wxFail ? "request failed" : "waiting for a position");
+    }
+    kvLan.end();
+}
+
 // Cabecera roja como la del rotor: icono, "APRS LoRa+" en negrita y debajo "Display <version>" (solo en la 7"); a la derecha el enlace BLE
 static void buildHeader() {
     lv_obj_t* top = lv_obj_create(scr);
@@ -864,7 +1053,7 @@ void begin(proto::Model* model, int theme, void (*onThemeChange)(int)) {
     struct { const char* text; const char* icon; lv_obj_t** tab; } T[] = {
         {"Status", LV_SYMBOL_HOME, &tabDash}, {"Heard", LV_SYMBOL_LIST, &tabHeard}, {"Messages", LV_SYMBOL_ENVELOPE, &tabMsgs},
         {"Sensors", LV_SYMBOL_BATTERY_FULL, &tabSens}, {"SAT / Rotor", LV_SYMBOL_GPS, &tabSat}, {"Mirror", LV_SYMBOL_EYE_OPEN, &tabMirror},
-        {"DAPNET", LV_SYMBOL_BELL, &tabPages}, {"Settings", LV_SYMBOL_SETTINGS, &tabSet}};
+        {"DAPNET", LV_SYMBOL_BELL, &tabPages}, {"Network", LV_SYMBOL_WIFI, &tabNet}, {"Settings", LV_SYMBOL_SETTINGS, &tabSet}};
     for (auto& t : T) *t.tab = lv_tabview_add_tab(tabs, L.tabIcons ? t.icon : t.text);
     for (uint32_t i = 0; i < lv_obj_get_child_count(bar); i++) {
         lv_obj_t* b = lv_obj_get_child(bar, i);
@@ -881,7 +1070,7 @@ void begin(proto::Model* model, int theme, void (*onThemeChange)(int)) {
     lv_obj_set_style_text_color(kb, C(P->btnText), LV_PART_ITEMS);
     lv_obj_set_hidden(kb, true);
 
-    buildDash(); buildHeard(); buildMsgs(); buildSens(); buildSat(); buildMirror(); buildPages(); buildSet();
+    buildDash(); buildHeard(); buildMsgs(); buildSens(); buildSat(); buildMirror(); buildPages(); buildNet(); buildSet();
 
     // las columnas se reparten con el ancho real de cada tabla, que se conoce despues de colocar todo
     lv_obj_update_layout(scr);
@@ -923,6 +1112,11 @@ void update() {
     kvSet.add("Firmware", M->info.ok ? M->info.fw.c_str() : "-");
     kvSet.add("Display", BOARD_ENV " " DISPLAY_VERSION);
     kvSet.end();
+
+    // red local: una vez por segundo (no depende del tracker)
+    static uint32_t tNet = 0;
+    const uint32_t nowMs = lv_tick_get();
+    if (nowMs - tNet >= 1000 || !tNet) { tNet = nowMs ? nowMs : 1; fillBoat(nowMs); fillLan(nowMs); }
 
     if (M->revision == drawnRev) return;
     drawnRev = M->revision;

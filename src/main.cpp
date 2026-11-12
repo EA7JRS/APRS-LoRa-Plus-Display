@@ -11,6 +11,7 @@
 #include <Preferences.h>
 #include <lvgl.h>
 #include "board.h"
+#include "boat_link.h"
 #include "protocol.h"
 #include "tracker_link.h"
 #include "ui.h"
@@ -86,6 +87,7 @@ void setup() {
     lv_indev_set_read_cb(indev, readTouch);
 
     trk::begin();
+    boat::begin();                                      // red local: WiFi, servidor TCP, UDP (pestana Network)
     ui::begin(&model, loadTheme(), saveTheme);
     if (!ok) Serial.println("La placa no ha arrancado bien: revisar docs/HARDWARE.md");
 }
@@ -141,6 +143,13 @@ void loop() {
         if (line.find("\"e\":\"msg\"") != std::string::npos) trk::send(proto::cmdMsgs(0, 10));
     }
     scheduler();
+    // posicion del tracker a la tabla de datos de la red (por debajo de gpsd, Signal K o NMEA de la red)
+    static uint32_t fedRev = 0;
+    if (trk::state() == trk::State::Linked && model.gnss.fix && model.revision != fedRev) {
+        fedRev = model.revision;
+        boat::trackerFix(model.gnss.lat, model.gnss.lon, model.gnss.spd / 1.852, model.gnss.crs, millis());
+    }
+    boat::loop(millis());
     static uint32_t t = 0;
     if (millis() - t > 300) { t = millis(); ui::update(); }
     lv_timer_handler();
