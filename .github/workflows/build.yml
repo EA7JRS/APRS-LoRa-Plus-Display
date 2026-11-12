@@ -55,7 +55,7 @@ jobs:
             - name: Pruebas del protocolo (PC)
               run: |
                   AJ=$(find .pio/libdeps -type d -path '*ArduinoJson/src' | head -1)
-                  g++ -std=c++17 -Wall -Wextra -Werror -I src -I "$AJ" test/test_protocol.cpp src/protocol.cpp -o /tmp/test_protocol
+                  g++ -std=c++17 -Wall -Wextra -Werror -I src -I lib/plotter_core/src -I "$AJ" test/test_protocol.cpp src/protocol.cpp lib/plotter_core/src/alerts.cpp lib/plotter_core/src/minijson.cpp lib/plotter_core/src/geo.cpp -o /tmp/test_protocol
                   /tmp/test_protocol
 
             - name: Pruebas del reloj (PC)
