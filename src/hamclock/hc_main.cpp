@@ -69,6 +69,7 @@ static void saveConfig(const hc::Config& c) {
 void setup() {
     Serial.begin(115200);
     Serial.println("\n=== APRS LoRa+ Display " DISPLAY_VERSION " (" BOARD_ENV "_hamclock) ===");
+    Serial.println("[INFO][Main] APRS LoRa+ (c) 2026 Manuel - EA7JRS");
     bool ok = board::begin();
     loadConfig();
 

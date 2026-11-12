@@ -66,6 +66,7 @@ static uint32_t tickMs() { return millis(); }
 void setup() {
     Serial.begin(115200);
     Serial.println("\n=== APRS LoRa+ Display " DISPLAY_VERSION " (" BOARD_ENV ") ===");
+    Serial.println("[INFO][Main] APRS LoRa+ (c) 2026 Manuel - EA7JRS");      // la misma linea en todos los equipos APRS LoRa+
     bool ok = board::begin();
 
     lv_init();

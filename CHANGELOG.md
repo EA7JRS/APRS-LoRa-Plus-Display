@@ -1,5 +1,8 @@
 # Changelog
 
+## Sin publicar
+- Registro de arranque con la línea común del ecosistema: «[INFO][Main] APRS LoRa+ (c) 2026 Manuel - EA7JRS».
+
 ## 5.4.4 — 2026-11-12
 - Solo el número de versión (misma versión en todo el ecosistema; las novedades de la 5.4.4 son del tracker y la app).
 
