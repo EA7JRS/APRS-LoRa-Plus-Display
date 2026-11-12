@@ -309,7 +309,7 @@ static void radarDraw(lv_event_t* e) {
         ad.radius = R * k / 4;
         lv_draw_arc(layer, &ad);
         float km = mShownKm * k / 4;
-        snprintf(b, sizeof b, km < 10 ? "%.1f km" : "%.0f km", km);
+        snprintf(b, sizeof b, "%s", fmtKm(km).c_str());
         td.text = b;
         lv_area_t la = {cx + 4, cy - R * k / 4 + 2, cx + 90, cy - R * k / 4 + 22};
         lv_draw_label(layer, &td, &la);
@@ -358,7 +358,10 @@ static void radarDraw(lv_event_t* e) {
     lv_draw_triangle(layer, &tr);
 }
 static void refreshRadar() {
-    for (int i = 0; i < 5; i++) chipSet(mRangeC[i], i == mRange);
+    for (int i = 0; i < 5; i++) {
+        chipSet(mRangeC[i], i == mRange);
+        if (i) { char t[16]; snprintf(t, sizeof t, "%d %s", RANGES[i], wxc::distUnit(cfg::get().units).label); setText(lv_obj_get_child(mRangeC[i], 0), t); }
+    }
     double la, lo;
     mPts.clear();
     if (!ownPos(la, lo)) { setText(mInfo, "Needs the tracker's GNSS position."); lv_obj_invalidate(mapObj); return; }
@@ -367,8 +370,10 @@ static void refreshRadar() {
     for (const auto& h : M->heard) if (h.hasPos) ds.push_back(proto::distanceKm(la, lo, h.lat, h.lon));
     std::sort(ds.begin(), ds.end());
     double far = ds.empty() ? 1 : std::max(1.0, ds[(ds.size() * 3) / 4 < ds.size() ? (ds.size() * 3) / 4 : ds.size() - 1]);
-    if (mRange) mShownKm = (float)RANGES[mRange];
-    else { static const float steps[] = {2, 5, 10, 20, 50, 100, 200, 500, 1000}; mShownKm = 1000; for (float s : steps) if (far * 1.1 <= s) { mShownKm = s; break; } }
+    // alcances redondos en la unidad elegida (5 mn, 20 mn...), guardados en km
+    const float perKm = (float)wxc::distUnit(cfg::get().units).k;
+    if (mRange) mShownKm = (float)RANGES[mRange] / perKm;
+    else { static const float steps[] = {2, 5, 10, 20, 50, 100, 200, 500, 1000}; mShownKm = 1000 / perKm; for (float s : steps) if (far * 1.1 <= s / perKm) { mShownKm = s / perKm; break; } }
     lv_area_t a;
     lv_obj_get_coords(mapObj, &a);
     const int cx = (a.x1 + a.x2) / 2, cy = (a.y1 + a.y2) / 2, R = lv_area_get_height(&a) / 2 - 16;
