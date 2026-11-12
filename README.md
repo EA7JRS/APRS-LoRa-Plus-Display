@@ -52,6 +52,8 @@ Por **UDP** (por ejemplo, 10110) entra el NMEA que se difunde en la red, como el
 
 Cada dato se toma de la mejor fuente que esté al día: red (LAN), tracker por BLE (TRK, solo la posición, el rumbo y la velocidad de su GNSS) e internet (WEB). A los 10 s sin la fuente mejor entra la siguiente. Los blancos AIS de la red salen con distancia, demora y CPA (riesgo con CPA ≤ 0,5 mn y TCPA ≤ 20 min, en rojo).
 
+**Hora**: el reloj de la pantalla se pone con la del GNSS del tracker (evento `gnss`) o la del GPS que llegue por la red (RMC / ZDA) y, sin GPS, con NTP por la WiFi: `ntp.roa.es`, la hora oficial de España (Real Instituto y Observatorio de la Armada), con `hora.roa.es` y `pool.ntp.org` de reserva. Mientras la del GPS esté al día (6 h), NTP no la sustituye. Settings > Link > *Clock* enseña la hora UTC y de dónde sale.
+
 La configuración se guarda en la pantalla (WiFi, servidor, puertos, clave). El código común está en `lib/plotter_core` y `lib/aprs_links`, copiado del plotter con `tools/sync_links.sh` (se cambia allí, donde tiene sus pruebas, y se vuelve a copiar). El Bluetooth NMEA del plotter (pasarela XIAO, instrumento de viento) no está activado aquí todavía: la pantalla ya usa el Bluetooth para el tracker.
 
 ## Compilar

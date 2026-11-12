@@ -148,6 +148,7 @@ void loop() {
     if (trk::state() == trk::State::Linked && model.gnss.fix && model.revision != fedRev) {
         fedRev = model.revision;
         boat::trackerFix(model.gnss.lat, model.gnss.lon, model.gnss.spd / 1.852, model.gnss.crs, millis());
+        if (!model.gnss.utc.empty()) boat::trackerTime(model.gnss.utc.c_str());
     }
     boat::loop(millis());
     static uint32_t t = 0;

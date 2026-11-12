@@ -51,11 +51,15 @@ public:
     const AisReport& ais() const { return ais_; }  // valido tras devolver Ais
     const N2kStats& stats() const { return stats_; }
     uint32_t dropped() const { return fast_.dropped(); }
+    // Hora UTC del bus (126992 hora del sistema, 129029 posicion GNSS): true una vez por cada hora nueva
+    bool takeUtc(int64_t& unixSec) { if (!utcNew_) return false; utcNew_ = false; unixSec = utc_; return true; }
 
 private:
     N2kFastPacket fast_;
     AisReport ais_;
     N2kStats stats_;
+    int64_t utc_ = 0;
+    bool utcNew_ = false;
 };
 
 }  // namespace plotter

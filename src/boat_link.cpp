@@ -13,6 +13,7 @@
 #include "nmea.h"
 #include "sk_link.h"
 #include "stream.h"
+#include "tsync.h"
 
 using namespace plotter;
 
@@ -89,6 +90,11 @@ void begin() {
     net::apply(cfg);
 }
 
+void trackerTime(const char* isoUtc) {
+    int64_t t;
+    if (plotter::isoUtc(isoUtc, t)) tsync::offer(plotter::TimeSource::Gps, t);   // GNSS del tracker (cada 2 s)
+}
+
 void trackerFix(double lat, double lon, double sogKn, double cogDeg, uint32_t now) {
     st_.set(Key::Lat, lat, Source::Ble, now);
     st_.set(Key::Lon, lon, Source::Ble, now);
@@ -144,6 +150,7 @@ static void nmeaLines(uint32_t now) {
                 if (!lb.push((char)buf[i])) continue;
                 lines++;
                 st.netLastMs = now;
+                tsync::offerNmea(lb.line());                        // hora del GPS (gpsd, el movil, el plotter...)
                 if (rd.feed(lb.line(), Source::Tcp, now, st_) == NmeaResult::Ais) {
                     tgs.update(rd.ais(), now);
                     st.aisMessages++;

@@ -20,6 +20,11 @@ struct Config {
     int tcpPort = 10110;
     int udpPort = 0;                    // 0 = sin escucha
     char owmKey[40] = "";               // clave de OpenWeatherMap: datos de reserva si falla un sensor de a bordo
+    // true: la WiFi la lleva esta libreria (conecta a ssid / pass). false: la lleva el programa (el rotor, con su punto de
+    // acceso de rescate) y aqui solo se usa cuando esta en marcha, como cliente o como punto de acceso; ssid y pass no cuentan.
+    bool ownWifi = true;
+    char ntp[40] = "";                  // servidor NTP (vacio = ntp.roa.es, hora oficial de Espana); lo arranca la libreria
+                                        // con su WiFi; con la del programa (ownWifi = false) lo arranca el programa (tsync)
 };
 
 // Observacion de internet para la posicion del barco (OpenWeatherMap). Los campos que no vengan quedan en NAN.

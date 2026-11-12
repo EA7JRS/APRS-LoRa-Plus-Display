@@ -4,7 +4,13 @@
  */
 #include "ble.h"
 
-#ifdef ESP32
+// Sin Bluetooth central: fuera del ESP32, con APRS_LINKS_NO_BLE o si NimBLE se compila sin el papel de central (el rotor solo es
+// periferico). Entonces las funciones no hacen nada.
+#if defined(ESP32) && !defined(APRS_LINKS_NO_BLE) && !defined(CONFIG_BT_NIMBLE_ROLE_CENTRAL_DISABLED)
+#define APRS_LINKS_BLE 1
+#endif
+
+#ifdef APRS_LINKS_BLE
 #include <NimBLEDevice.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/stream_buffer.h>
@@ -16,7 +22,7 @@ namespace ble {
 static Status st;
 const Status& status() { return st; }
 
-#ifdef ESP32
+#ifdef APRS_LINKS_BLE
 
 // Servicio de datos NMEA de APRS LoRa+ (docs/BLE_NMEA.md): ...0002 escribe el plotter, ...0003 notifica la pasarela.
 static const NimBLEUUID kSvc("4c6f5261-2b00-4ea7-b100-000000000001");
@@ -188,7 +194,7 @@ bool write(const char* text, int len) {
     return xStreamBufferSend(out, text, (size_t)len, 0) == (size_t)len;
 }
 
-#else   // en el PC no hay Bluetooth
+#else   // en el PC no hay Bluetooth (ni en los equipos sin central)
 
 void set(bool, const char*, uint32_t) {}
 int read(uint8_t*, int) { return 0; }

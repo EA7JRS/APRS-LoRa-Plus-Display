@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "n2k.h"
+#include "timesync.h"
 
 #include <cmath>
 #include <cstring>
@@ -204,8 +205,16 @@ N2kResult N2kReader::feedMessage(uint32_t pgn, const uint8_t* d, int len, Source
             if (!any) return N2kResult::None;
             break;
         }
+        case 126992: {                                     // hora del sistema (fuente en los 4 bits bajos de d[1]: 0 = GPS)
+            if (len < 8) return N2kResult::None;
+            const int64_t t = n2kUtc(u16(d, 2), u32(d, 4));
+            if (t < 0) return N2kResult::None;
+            utc_ = t; utcNew_ = true;
+            break;
+        }
         case 129029: {                                     // posicion GNSS completa
             if (len < 31) return N2kResult::None;
+            { const int64_t t = n2kUtc(u16(d, 1), u32(d, 3)); if (t >= 0) { utc_ = t; utcNew_ = true; } }
             int64_t la = i64(d, 7), lo = i64(d, 15), al = i64(d, 23);
             if (la == INT64_MAX || lo == INT64_MAX) return N2kResult::None;
             double lat = (double)la * 1e-16, lon = (double)lo * 1e-16;

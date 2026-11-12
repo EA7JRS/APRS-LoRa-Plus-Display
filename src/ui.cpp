@@ -11,11 +11,13 @@
 #include "ui.h"
 #include "board.h"
 #include "boat_link.h"
+#include "tsync.h"
 #include "tracker_link.h"
 #include "ui_assets.h"
 #include <lvgl.h>
 #include <cctype>
 #include <cmath>
+#include <ctime>
 #include <string>
 #include <cstdio>
 #include <cstdarg>
@@ -1111,6 +1113,18 @@ void update() {
     kvSet.add("Board", M->info.ok ? M->info.board.c_str() : "-");
     kvSet.add("Firmware", M->info.ok ? M->info.fw.c_str() : "-");
     kvSet.add("Display", BOARD_ENV " " DISPLAY_VERSION);
+    {                                                           // reloj interno: hora UTC y quien la puso (GPS, NTP del ROA)
+        const time_t tt = (time_t)tsync::now();
+        const tsync::Status ts = tsync::status();
+        if (!tt) kvSet.add("Clock", "not set", P->mut);
+        else {
+            struct tm u;
+            gmtime_r(&tt, &u);
+            const bool synced = ts.source != plotter::TimeSource::None;
+            kvSet.addf("Clock", synced ? P->fg : P->yel, "%02d:%02d:%02d UTC (%s)", u.tm_hour, u.tm_min, u.tm_sec,
+                       synced ? (ts.source == plotter::TimeSource::Gps ? "GPS" : plotter::timeSourceName(ts.source)) : "not synced");
+        }
+    }
     kvSet.end();
 
     // red local: una vez por segundo (no depende del tracker)

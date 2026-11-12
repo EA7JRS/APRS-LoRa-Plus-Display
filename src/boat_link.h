@@ -32,6 +32,9 @@ const net::Config& config();
 void setConfig(const net::Config& c);  // guarda y vuelve a conectar
 // Posicion del tracker por BLE (solo con fix): entra en la tabla como fuente BLE
 void trackerFix(double lat, double lon, double sogKn, double cogDeg, uint32_t nowMs);
+// Hora del GNSS del tracker ("2026-11-12T06:00:00Z" del evento gnss): pone el reloj (lib/aprs_links/tsync). Sin GPS, la
+// hora sale de NTP (ntp.roa.es, hora oficial de Espana) cuando hay WiFi.
+void trackerTime(const char* isoUtc);
 
 plotter::DataStore& store();
 plotter::AisTargets& targets();
