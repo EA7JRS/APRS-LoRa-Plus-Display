@@ -20,5 +20,7 @@ Pantalla táctil para el tracker en cuatro placas Waveshare (2026-11-09): **ESP3
 
 - **Hora (2026-11-12, rama `hora`; Manuel: hora del GPS y NTP `ntp.roa.es` en todos los equipos; el tracker también desde la 5.4.2: Manuel, «los dispositivos APRS LoRa+ tracker no son fork de CA2RXU»)**: `tsync` de `lib/aprs_links` (reglas en `timesync` del núcleo: GPS manda 6 h sobre NTP). GNSS del tracker → `boat::trackerTime` (ISO del evento `gnss`, desde `main.cpp`); RMC / ZDA de la red → `tsync::offerNmea` en `boat_link.cpp`; NTP lo arranca `net` al conectar la WiFi. Settings > Link > *Clock*.
 
+- **Fórmulas (2026-11-12, rama `formulas`; Manuel: «Todas»)**: del núcleo del plotter (`astro`, `wind`, `wxcalc`, `wmm`): Beaufort en Network > *True wind* y Sensors > *Wind*, rocío y sensación en *Air*, filas *Sun* y *Moon* (UTC) en Network, y `boat_link` pone el rumbo verdadero con la declinación del WMM si solo llega HDG / HDM.
+
 ## Cómo trabajar
 - No publicar releases ni tocar otros repositorios sin que lo pida Manuel (las etiquetas y releases las crea él).
