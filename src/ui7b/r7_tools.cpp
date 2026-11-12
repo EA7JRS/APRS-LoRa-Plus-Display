@@ -9,7 +9,7 @@
 #ifdef UI_RADIO
 #include "r7.h"
 #include "board.h"
-#include "net.h"
+#include "net7.h"
 #include "settings.h"
 #include "tracker_link.h"
 #include "ui_assets.h"
@@ -384,16 +384,16 @@ static Rows fRows;
 static lv_obj_t *fBar, *fInstall, *fNote;
 static void onFwCheck(lv_event_t*) {
     if (!M->info.ok) { error("Link the tracker first"); return; }
-    if (!net::wifi().connected) { error("Needs WiFi (Settings > WiFi)"); return; }
-    net::fwCheck(M->info.board);
+    if (!net7::wifi().connected) { error("Needs WiFi (Settings > WiFi)"); return; }
+    net7::fwCheck(M->info.board);
 }
-static void doInstall(void*) { net::fwInstall(M->info.board); }
+static void doInstall(void*) { net7::fwInstall(M->info.board); }
 static void onFwInstall(lv_event_t*) {
     if (!M->info.capOta) { error("This board has no second firmware slot: update it with the web installer over USB"); return; }
-    std::string t = "The display downloads " + net::fw().latest + " with its WiFi, checks it and sends it to the tracker over Bluetooth. Keep both on until it restarts.";
+    std::string t = "The display downloads " + net7::fw().latest + " with its WiFi, checks it and sends it to the tracker over Bluetooth. Keep both on until it restarts.";
     confirm("Update the tracker firmware", t.c_str(), "UPDATE", doInstall, nullptr, true);
 }
-static void onFwCancel(lv_event_t*) { net::fwCancel(); }
+static void onFwCancel(lv_event_t*) { net7::fwCancel(); }
 static void buildFirmware(lv_obj_t* root) {
     lv_obj_t* tr;
     header(root, "Tracker firmware", &tr);
@@ -410,7 +410,7 @@ static void buildFirmware(lv_obj_t* root) {
     fNote = wrap(p, "", &app_text_18, P->muted);
 }
 static void refreshFirmware() {
-    net::Fw f = net::fw();
+    net7::Fw f = net7::fw();
     fRows.begin();
     fRows.add("INSTALLED", M->info.ok ? M->info.fw.c_str() : "-");
     fRows.add("BOARD", M->info.ok ? M->info.board.c_str() : "-");
@@ -442,7 +442,7 @@ static void onSaveWifi(lv_event_t*) {
     std::string pw = lv_textarea_get_text(gPass);
     if (!pw.empty()) cfg::get().wifiPass = pw;
     cfg::save();
-    net::wifiApply();
+    net7::wifiApply();
     lv_textarea_set_text(gPass, "");
     notice(cfg::get().wifiSsid.empty() ? "WiFi off" : "Connecting to the WiFi...");
 }
@@ -587,7 +587,7 @@ static void refreshSettings() {
     lv_textarea_set_placeholder_text(gOwm, cfg::get().owmKey.empty() ? "API key (openweathermap.org, free)" : "API key saved (empty = keep)");
     lv_textarea_set_placeholder_text(gPass, cfg::get().wifiPass.empty() ? "Password" : "Password saved (empty = keep)");
     lv_textarea_set_placeholder_text(gArc, cfg::get().arcgisKey.empty() ? "ArcGIS API key" : "ArcGIS key saved (empty = keep)");
-    setText(gSd, net::sdOk() ? "microSD: tiles are saved in /maps and work without WiFi." : "No microSD (or the map not opened yet): tiles are kept only while the display is on.");
+    setText(gSd, net7::sdOk() ? "microSD: tiles are saved in /maps and work without WiFi." : "No microSD (or the map not opened yet): tiles are kept only while the display is on.");
     for (int i = 0; i < 3; i++) chipSet(gUnit[i], cfg::get().units == i);
     chipSet(gWxTr, cfg::get().wxToTracker, P->green);
     chipSet(gWxRot, cfg::get().wxToRotor, P->green);

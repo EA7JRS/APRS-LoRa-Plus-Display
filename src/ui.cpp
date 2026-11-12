@@ -11,17 +11,24 @@
 #ifndef UI_RADIO   // la 7B v2 (waveshare_lcd7b_v2) usa la interfaz tipo emisora de src/ui7b/
 #include "ui.h"
 #include "board.h"
+#include "boat_link.h"
+#include "tsync.h"
+#include "astro.h"      // formulas del plotter: sol y luna
+#include "wind.h"       // Beaufort
+#include "wxcalc.h"     // punto de rocio, sensacion termica
 #include "tracker_link.h"
 #include "ui_assets.h"
 #include <lvgl.h>
 #include <cctype>
 #include <cmath>
+#include <ctime>
 #include <string>
 #include <cstdio>
 #include <cstdarg>
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+#include <algorithm>
 
 LV_FONT_DECLARE(dejavu_12)
 LV_FONT_DECLARE(dejavu_14)
@@ -101,7 +108,7 @@ static Layout makeLayout(int w, int h) {
 
 static proto::Model* M = nullptr;
 static uint32_t drawnRev = 0xFFFFFFFF;
-static lv_obj_t *scr, *tabs, *tabDash, *tabHeard, *tabMsgs, *tabSens, *tabSat, *tabMirror, *tabPages, *tabSet;
+static lv_obj_t *scr, *tabs, *tabDash, *tabHeard, *tabMsgs, *tabSens, *tabSat, *tabMirror, *tabPages, *tabNet, *tabSet;
 static lv_obj_t* kb;
 
 // cabecera
@@ -120,6 +127,9 @@ static lv_obj_t *lblMirrorTitle, *lblMirror;
 static lv_obj_t* tblPages;
 // ajustes
 static lv_obj_t *taPin, *taPeer, *lblPinRes, *lblBack;
+// red local (pestana Network)
+static lv_obj_t *taSsid, *taPass, *taHost, *taPort, *taUdp, *taOwm, *btnKind, *lblNetRes, *taZones, *taCountry;
+static int netKind = 0;
 static int backlight = 100;
 
 // ---------- estilos ----------
@@ -268,6 +278,7 @@ static lv_obj_t* button(lv_obj_t* parent, const char* t, lv_event_cb_t cb, void*
 // Lista clave / valor (como la pantalla de informacion del rotor). Las filas se crean al vuelo y las que sobran se esconden.
 struct Kv {
     lv_obj_t* box = nullptr;
+    int kw = 0;                                                     // ancho de la columna de claves (0 = el de la pantalla)
     std::vector<lv_obj_t*> rows;
     size_t n = 0;
     void create(lv_obj_t* parent, const char* title = nullptr) { box = card(parent, title); lv_obj_set_style_pad_row(box, L.sz == Size::S ? 2 : L.pad / 2, 0); }
@@ -279,7 +290,7 @@ struct Kv {
             lv_obj_set_style_pad_column(r, L.pad, 0);
             lv_obj_t* kl = label(r, "");
             lv_obj_add_style(kl, &stKey, 0);
-            lv_obj_set_width(kl, L.keyW);
+            lv_obj_set_width(kl, kw ? kw : L.keyW);
             lv_label_set_long_mode(kl, LV_LABEL_LONG_MODE_CLIP);
             lv_obj_set_height(kl, lv_font_get_line_height(L.fBase));
             lv_obj_t* vl = label(r, "");
@@ -305,7 +316,7 @@ struct Kv {
     }
     void end() { for (size_t i = n; i < rows.size(); i++) lv_obj_set_hidden(rows[i], true); }
 };
-static Kv kvDash, kvSens, kvNet, kvSet;
+static Kv kvDash, kvSens, kvNet, kvSet, kvBoat, kvLan, kvAlerts, kvSpace;
 
 // ---------- columnas de las tablas: cuales salen y su peso en el ancho, segun la pantalla ----------
 struct Col { int id; float weight; const char* title; };
@@ -573,9 +584,14 @@ static void buildSens() {
     page(tabSens, LV_FLEX_FLOW_ROW_WRAP);
     kvSens.create(tabSens, "Tracker sensors");
     kvNet.create(tabSens, "Internet weather");
+    kvAlerts.create(tabSens, "Official alerts");
+    kvSpace.create(tabSens, "Space weather");
     if (L.sz == Size::L) {
         lv_obj_set_width(kvSens.box, LV_PCT(48));
         lv_obj_set_width(kvNet.box, LV_PCT(49));
+        lv_obj_set_width(kvAlerts.box, LV_PCT(48));
+        lv_obj_set_width(kvSpace.box, LV_PCT(49));
+        kvAlerts.kw = 120;
     }
 }
 
@@ -723,9 +739,401 @@ static void buildSet() {
     lblBack = label(br, "");
     button(br, LV_SYMBOL_PLUS, onBack, (void*)(intptr_t)10, L.btnH * 2);
     showBacklight();
+
+    // About: version, copyright, proyecto y QR de donativos (PayPal.me de EA7JRS), como el About de las WebUI
+    lv_obj_t* ac = card(tabSet, "About");
+    lv_obj_t* ar = plain(ac);                                   // QR a la izquierda y el texto al lado (pequena: debajo)
+    lv_obj_set_flex_flow(ar, L.sz == Size::S ? LV_FLEX_FLOW_COLUMN : LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(ar, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_gap(ar, L.pad * 2, 0);
+    const int qs = L.sz == Size::L ? 150 : L.sz == Size::M ? 112 : 96;
+    // Marco con el degradado del logo (verde -> cian) por fuera del margen blanco, que no estorba la lectura;
+    // modulos del color oscuro de la paleta sobre blanco (contraste 17:1)
+    const int ring = L.sz == Size::S ? 4 : 5;
+    lv_obj_t* qw = lv_obj_create(ar);
+    lv_obj_remove_style_all(qw);
+    lv_obj_set_size(qw, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(qw, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(qw, C(0x3CE68A), 0);
+    lv_obj_set_style_bg_grad_color(qw, C(0x28B5E1), 0);
+    lv_obj_set_style_bg_grad_dir(qw, LV_GRAD_DIR_HOR, 0);
+    lv_obj_set_style_pad_all(qw, ring, 0);
+    lv_obj_set_style_radius(qw, ring, 0);
+    lv_obj_t* qr = lv_qrcode_create(qw);
+    lv_qrcode_set_size(qr, qs);
+    lv_qrcode_set_dark_color(qr, C(P->bg));
+    lv_qrcode_set_light_color(qr, lv_color_white());
+    static const char kDonate[] = "https://paypal.me/ea7jrs";
+    lv_qrcode_update(qr, kDonate, sizeof kDonate - 1);
+    lv_obj_set_style_border_color(qr, lv_color_white(), 0);       // margen blanco: lo piden los lectores de QR
+    lv_obj_set_style_border_width(qr, L.sz == Size::S ? 4 : 6, 0);
+    lv_obj_t* at = plain(ar);
+    if (L.sz != Size::S) lv_obj_set_flex_grow(at, 1);
+    lv_obj_set_flex_flow(at, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_gap(at, 2, 0);
+    wrapLabel(at, "APRS LoRa+ Display " DISPLAY_VERSION);
+    wrapLabel(at, "\xC2\xA9 2026 Manuel - EA7JRS");
+    setColor(wrapLabel(at, "ea7jrs.github.io/APRS-LoRa-Plus"), P->acc);
+    setColor(wrapLabel(at, "Donate: paypal.me/ea7jrs"), P->acc);
+    lv_obj_add_style(wrapLabel(at, "Scan the QR code to donate"), &stKey, 0);
+    lv_obj_add_style(wrapLabel(at, "GPL-3.0-or-later"), &stKey, 0);
 }
 
-// Cabecera roja como la del rotor: icono, "APRS LoRa+" en negrita y debajo "Display <version>"; a la derecha el enlace BLE
+// ---------- Network: la conectividad del plotter (WiFi, servidor TCP NMEA / gpsd / Signal K, UDP, tiempo de internet) ----------
+static void showKind() {
+    char b[40];
+    snprintf(b, sizeof b, "Server: %s", boat::kindName(netKind));
+    lv_label_set_text(lv_obj_get_child(btnKind, 0), b);
+}
+static void onKind(lv_event_t*) {                                // Off > NMEA 0183 > gpsd > Signal K; el puerto sigue al tipo
+    const int old = netKind;
+    netKind = (netKind + 1) % net::TCP_KINDS;
+    const char* p = lv_textarea_get_text(taPort);
+    if (!*p || atoi(p) == boat::defaultPort(old)) {
+        char b[8];
+        snprintf(b, sizeof b, "%d", boat::defaultPort(netKind));
+        lv_textarea_set_text(taPort, b);
+    }
+    showKind();
+}
+static void onNetSave(lv_event_t*) {
+    net::Config c = boat::config();
+    snprintf(c.ssid, sizeof c.ssid, "%s", lv_textarea_get_text(taSsid));
+    snprintf(c.pass, sizeof c.pass, "%s", lv_textarea_get_text(taPass));
+    snprintf(c.host, sizeof c.host, "%s", lv_textarea_get_text(taHost));
+    snprintf(c.owmKey, sizeof c.owmKey, "%s", lv_textarea_get_text(taOwm));
+    boat::setAlerts(lv_textarea_get_text(taZones), lv_textarea_get_text(taCountry));
+    c.tcpKind = netKind;
+    const int port = atoi(lv_textarea_get_text(taPort)), udp = atoi(lv_textarea_get_text(taUdp));
+    c.tcpPort = port > 0 && port < 65536 ? port : boat::defaultPort(netKind);
+    c.udpPort = udp > 0 && udp < 65536 ? udp : 0;
+    boat::setConfig(c);
+    lv_label_set_text(lblNetRes, c.ssid[0] ? "Saved. Connecting..." : "Saved. Wi-Fi off (no network name)");
+}
+// Campo con su nombre encima (el texto de ayuda desaparece al escribir)
+static lv_obj_t* labeledField(lv_obj_t* parent, const char* key, const char* hint, int w, int maxLen, const char* accepted = nullptr) {
+    lv_obj_t* b = plain(parent);
+    lv_obj_set_flex_flow(b, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_gap(b, 2, 0);
+    lv_obj_add_style(label(b, key), &stKey, 0);
+    return field(b, hint, w, maxLen, accepted);
+}
+
+// ---------- Avisos oficiales: los del tracker (la app los baja con su internet; SAME de la T-TWR) y los de la WiFi propia ----------
+static std::vector<plotter::Alert> netAlerts;
+static plotter::SpaceWx netSpace;
+static std::vector<std::string> alertSeen;                      // "id#nivel" ya mostrados en ventana
+static lv_obj_t *alWin = nullptr, *alHead, *alTitle, *alSrc, *alEvent, *alBody;
+static std::string alWinId;
+
+static uint32_t levelColor(uint8_t lv) { return lv >= 3 ? P->red : lv == 2 ? 0xFF9A3C : lv == 1 ? 0xFFD84D : P->mut; }
+
+static void allAlerts(std::vector<const plotter::Alert*>& out) {
+    out.clear();
+    for (const auto& a : M->alerts) out.push_back(&a);
+    for (const auto& a : netAlerts) {
+        bool dup = false;
+        for (const auto* b : out) if (b->id == a.id || (b->src == a.src && b->event == a.event && b->area == a.area && b->onset == a.onset)) dup = true;
+        if (!dup) out.push_back(&a);
+    }
+    std::stable_sort(out.begin(), out.end(), [](const plotter::Alert* a, const plotter::Alert* b) { return a->level > b->level; });
+}
+
+static void onAlertClose(lv_event_t*) {
+    lv_obj_set_hidden(alWin, true);
+    alWinId.clear();
+}
+
+static void buildAlertWin() {
+    alWin = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(alWin);
+    lv_obj_set_size(alWin, board::W, board::H);
+    lv_obj_set_style_bg_color(alWin, lv_color_hex(0x06090D), 0);
+    lv_obj_set_style_bg_opa(alWin, 190, 0);
+    lv_obj_add_flag(alWin, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t* w = lv_obj_create(alWin);
+    lv_obj_remove_style_all(w);
+    lv_obj_add_style(w, &stCard, 0);
+    lv_obj_set_size(w, board::W * 9 / 10, LV_SIZE_CONTENT);
+    lv_obj_center(w);
+    lv_obj_set_flex_flow(w, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(w, 0, 0);
+    lv_obj_set_style_pad_gap(w, L.pad / 2, 0);
+    lv_obj_set_style_clip_corner(w, true, 0);
+    alHead = plain(w);
+    lv_obj_set_style_bg_opa(alHead, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_all(alHead, L.pad, 0);
+    lv_obj_set_flex_flow(alHead, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(alHead, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    alTitle = label(alHead, "", L.fSub);
+    alSrc = label(alHead, "", L.fBase);
+    lv_obj_t* body = plain(w);
+    lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_hor(body, L.pad, 0);
+    lv_obj_set_style_pad_bottom(body, L.pad, 0);
+    lv_obj_set_style_pad_gap(body, L.pad / 2, 0);
+    alEvent = label(body, "", L.fSub);
+    alBody = wrapLabel(body, "");
+    button(body, "CLOSE", onAlertClose, nullptr, 0, true);
+    lv_obj_set_hidden(alWin, true);
+}
+
+// Una ventana por aviso nuevo (o que sube de nivel), desde amarillo; sin zonas, los de AEMET / MeteoAlarm solo en rojo
+static void checkAlertWin() {
+    if (!alWin) buildAlertWin();
+    if (!lv_obj_is_hidden(alWin)) return;
+    std::vector<const plotter::Alert*> all;
+    allAlerts(all);
+    for (const auto* a : all) {
+        if (a->level < 1) continue;
+        // los de la WiFi propia de AEMET / MeteoAlarm no traen poligono: sin zonas, todo el pais, y solo salta la ventana de los rojos
+        const bool fromNet = a >= netAlerts.data() && a < netAlerts.data() + netAlerts.size();
+        const bool noGeo = fromNet && (a->src == plotter::AlertSrc::MeteoAlarm || a->src == plotter::AlertSrc::Aemet);
+        if (noGeo && !boat::alerts().zones[0] && a->level < 3) continue;
+        const std::string key = a->id + "#" + std::to_string((int)a->level);
+        if (std::find(alertSeen.begin(), alertSeen.end(), key) != alertSeen.end()) continue;
+        alertSeen.push_back(key);
+        if (alertSeen.size() > 80) alertSeen.erase(alertSeen.begin(), alertSeen.begin() + 20);
+        const bool quake = a->src == plotter::AlertSrc::Usgs || a->src == plotter::AlertSrc::Emsc;
+        const char* t = quake ? "EARTHQUAKE" : a->src == plotter::AlertSrc::Tsunami ? "TSUNAMI" : a->src == plotter::AlertSrc::Swpc ? "SPACE WEATHER"
+                      : a->src == plotter::AlertSrc::Same ? "NOAA WEATHER RADIO" : a->level >= 3 ? "RED WARNING" : a->level == 2 ? "ORANGE WARNING" : "YELLOW WARNING";
+        lv_obj_set_style_bg_color(alHead, C(levelColor(a->level)), 0);
+        setText(alTitle, t);
+        setColor(alTitle, 0x131A22);
+        setText(alSrc, plotter::alertSrcName(a->src));
+        setColor(alSrc, 0x131A22);
+        setText(alEvent, a->event.c_str());
+        char b[300];
+        snprintf(b, sizeof b, "%s\n%s", a->area.c_str(), a->text.c_str());
+        setText(alBody, b);
+        lv_obj_set_hidden(alWin, false);
+        alWinId = a->id;
+        return;
+    }
+}
+
+static void fillAlerts() {
+    std::vector<const plotter::Alert*> all;
+    allAlerts(all);
+    kvAlerts.begin();
+    if (all.empty()) kvAlerts.add("-", M->info.ok || alertsnet::status().lastMs ? "No alerts in force" : "From the tracker (phone app) or the Wi-Fi", P->mut);
+    for (size_t i = 0; i < all.size() && i < 10; i++) {
+        char v[200];
+        snprintf(v, sizeof v, "%s \xC2\xB7 %s", all[i]->event.c_str(), all[i]->area.c_str());
+        kvAlerts.add(plotter::alertLevelName(all[i]->level), v, levelColor(all[i]->level));
+    }
+    if (alertsnet::status().msg[0]) kvAlerts.add("Wi-Fi", alertsnet::status().msg, P->mut);
+    kvAlerts.end();
+    const plotter::SpaceWx& w = M->spaceOk ? M->space : netSpace;
+    kvSpace.begin();
+    if (!w.valid()) kvSpace.add("-", "No data", P->mut);
+    else {
+        auto sc = [](int v) -> uint32_t { return v >= 4 ? P->red : v == 3 ? 0xFF9A3C : v >= 1 ? 0xFFD84D : P->green; };
+        kvSpace.addf("Geomagnetic", sc(w.g), "G%d", w.g < 0 ? 0 : w.g);
+        kvSpace.addf("Radio", sc(w.r), "R%d", w.r < 0 ? 0 : w.r);
+        kvSpace.addf("Radiation", sc(w.s), "S%d", w.s < 0 ? 0 : w.s);
+        if (w.kpCount) {
+            char k[64]; int n = 0;
+            for (int i = 0; i < w.kpCount; i++) n += snprintf(k + n, sizeof k - n, "%s%.1f", i ? " " : "", w.kp[i]);
+            kvSpace.addf("Kp 24 h", sc(plotter::kpToG(w.kpNow())), "%s", k);
+        }
+        if (w.sfi > 0) kvSpace.addf("Solar flux", P->fg, "%.0f sfu", w.sfi);
+        if (!w.xray.empty()) kvSpace.add("X-ray", w.xray.c_str());
+        if (w.bz < 999) kvSpace.addf("Bz / Bt", P->fg, "%+.0f / %.0f nT", w.bz, w.bt);
+        if (w.windKms > 0) kvSpace.addf("Solar wind", P->fg, "%.0f km/s", w.windKms);
+    }
+    kvSpace.end();
+}
+
+void setNetAlerts(std::vector<plotter::Alert>& v, const plotter::SpaceWx& sw) {
+    netAlerts.swap(v);
+    if (sw.valid()) netSpace = sw;
+    if (M) M->revision++;
+}
+
+static void buildNet() {
+    page(tabNet, LV_FLEX_FLOW_ROW_WRAP);
+    kvBoat.create(tabNet, "Boat data");
+    lv_obj_t* right = tabNet;                                     // 7": a la derecha, la red y su configuracion una debajo de otra
+    if (L.sz == Size::L) {
+        lv_obj_set_width(kvBoat.box, LV_PCT(55));
+        right = plain(tabNet);
+        lv_obj_set_width(right, LV_PCT(42));
+        lv_obj_set_flex_flow(right, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_pad_gap(right, L.pad, 0);
+        kvBoat.kw = 150;
+        kvLan.kw = 110;
+    } else {
+        kvLan.kw = L.keyW * 3 / 4;
+    }
+    kvLan.create(right, "Network");
+    lv_obj_t* c = card(right, "Wi-Fi and server");
+    const net::Config& cf = boat::config();
+    netKind = cf.tcpKind;
+    const int wBig = L.sz == Size::L ? LV_PCT(100) : L.sz == Size::M ? 210 : 200, wNum = L.sz == Size::L ? 150 : 100;
+    char b[8];
+    lv_obj_t* r1 = row(c);
+    taSsid = labeledField(r1, "Wi-Fi network", "name", wBig, 32);
+    lv_textarea_set_text(taSsid, cf.ssid);
+    taPass = labeledField(r1, "Password", "password", wBig, 64);
+    lv_textarea_set_password_mode(taPass, true);
+    lv_textarea_set_text(taPass, cf.pass);
+    lv_obj_t* r2 = row(c);
+    btnKind = button(r2, "", onKind, nullptr, L.sz == Size::L ? 300 : 0);
+    showKind();
+    taHost = labeledField(r2, "Server address", "empty = phone hotspot", wBig, 39);
+    lv_textarea_set_text(taHost, cf.host);
+    taPort = labeledField(r2, "Port", "10110", wNum, 5, "0123456789");
+    snprintf(b, sizeof b, "%d", cf.tcpPort);
+    lv_textarea_set_text(taPort, b);
+    lv_obj_t* r3 = row(c);
+    taUdp = labeledField(r3, "UDP port (0 = off)", "10110", wNum, 5, "0123456789");
+    snprintf(b, sizeof b, "%d", cf.udpPort);
+    lv_textarea_set_text(taUdp, b);
+    taOwm = labeledField(r3, "OpenWeatherMap key (optional)", "key", wBig, 39);
+    lv_textarea_set_text(taOwm, cf.owmKey);
+    lv_obj_t* r3b = row(c);
+    taZones = labeledField(r3b, "Alert zones (empty = all)", "Huelva, Cadiz", wBig, 63);
+    lv_textarea_set_text(taZones, boat::alerts().zones);
+    taCountry = labeledField(r3b, "Country (ISO)", "auto", wNum, 2, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz");
+    lv_textarea_set_text(taCountry, boat::alerts().country);
+    lv_obj_t* r4 = row(c);
+    button(r4, L.sz == Size::S ? "Save" : "Save and connect", onNetSave, nullptr, L.sz == Size::L ? 260 : 0, true);
+    lblNetRes = label(r4, "");
+    setColor(lblNetRes, P->acc);
+    lv_obj_add_style(wrapLabel(c, "gpsd: TCP 2947. Signal K: TCP 8375. Phone app (NMEA server on): empty address, port 10110. "
+                                  "Wind instrument and NMEA by UDP: UDP port 10110."), &stKey, 0);
+}
+
+static void fmtAgeMs(char* b, size_t n, uint32_t ms) { fmtAge(b, n, (int)(ms / 1000)); }
+
+// Lado: babor / estribor para el angulo del viento aparente (-180..180, positivo a estribor)
+static void fillBoat(uint32_t now) {
+    using plotter::Key;
+    plotter::DataStore& s = boat::store();
+    kvBoat.begin();
+    auto colorOf = [&](Key k) { return s.quality(k) == plotter::Quality::Estimated ? P->yel : P->fg; };
+    auto src = [&](Key k) { return boat::sourceName(s.source(k, now)); };
+    double a = 0, b2 = 0;
+    bool any = false;
+    if (s.get(Key::Lat, now, a) && s.get(Key::Lon, now, b2)) {
+        kvBoat.addf("Position", P->fg, "%.4f %c  %.4f %c  %s", std::fabs(a), a < 0 ? 'S' : 'N', std::fabs(b2), b2 < 0 ? 'W' : 'E', src(Key::Lat));
+        any = true;
+    }
+    struct { Key k; const char* name; const char* fmt; } one[] = {
+        {Key::Sog, "SOG", "%.1f kn"}, {Key::Cog, "COG", "%03.0f\xC2\xB0"}, {Key::Heading, "Heading", "%03.0f\xC2\xB0"},
+        {Key::Stw, "STW", "%.1f kn"}, {Key::Depth, "Depth", "%.1f m"}, {Key::WaterTemp, "Water temp.", "%.1f \xC2\xB0" "C"}};
+    for (auto& o : one)
+        if (s.get(o.k, now, a)) { char v[40]; snprintf(v, sizeof v, o.fmt, a); kvBoat.addf(o.name, colorOf(o.k), "%s  %s", v, src(o.k)); any = true; }
+    if (s.get(Key::Awa, now, a) && s.get(Key::Aws, now, b2)) {
+        kvBoat.addf("Apparent wind", P->fg, "%.0f\xC2\xB0 %s, %.1f kn  %s", std::fabs(a), a < 0 ? "port" : "stbd", b2, src(Key::Aws));
+        any = true;
+    }
+    if (s.get(Key::Tws, now, a)) {
+        char d[24] = "";
+        if (s.get(Key::Twd, now, b2)) snprintf(d, sizeof d, " from %03.0f\xC2\xB0", b2);
+        double g = 0;
+        char gs[24] = "";
+        if (s.get(Key::Gust, now, g)) snprintf(gs, sizeof gs, ", gusts %.0f", g);
+        kvBoat.addf("True wind", colorOf(Key::Tws), "%.1f kn F%d%s%s  %s", a, plotter::beaufort(a), d, gs, src(Key::Tws));
+        any = true;
+    }
+    if (s.get(Key::Pressure, now, a)) { kvBoat.addf("Pressure", colorOf(Key::Pressure), "%.0f hPa  %s", a, src(Key::Pressure)); any = true; }
+    if (s.get(Key::AirTemp, now, a)) {
+        char h[48] = "";
+        if (s.get(Key::Humidity, now, b2)) {
+            const double dp = plotter::dewPointC(a, b2);
+            if (std::isnan(dp)) snprintf(h, sizeof h, ", %.0f %%", b2);
+            else snprintf(h, sizeof h, ", %.0f %%, dew %.1f \xC2\xB0" "C", b2, dp);
+        }
+        double tw = -1, rh = -1;
+        if (s.get(Key::Tws, now, tw)) tw *= 1.852;
+        s.get(Key::Humidity, now, rh);
+        const double fl = plotter::feelsLikeC(a, rh, tw);
+        char f[32] = "";
+        if (std::fabs(fl - a) >= 0.5) snprintf(f, sizeof f, ", feels %.0f \xC2\xB0" "C", fl);
+        kvBoat.addf("Air", colorOf(Key::AirTemp), "%.1f \xC2\xB0" "C%s%s  %s", a, h, f, src(Key::AirTemp));
+        any = true;
+    }
+    if (s.get(Key::Lat, now, a) && s.get(Key::Lon, now, b2)) {     // sol y luna del dia en la posicion (UTC, como el reloj)
+        const time_t tt = (time_t)tsync::now();
+        if (tt > 1704067200) {
+            int y, mo, d; double hh;
+            plotter::unixToUtc((long long)tt, y, mo, d, hh);
+            auto hm = [](char* o, size_t n, double m) { int v = ((int)lround(m) % 1440 + 1440) % 1440; snprintf(o, n, "%02d:%02d", v / 60, v % 60); };
+            double r, st2, cr, cs, mr, ms;
+            bool hr, hs;
+            char r1[8], r2[8], c1[8] = "--", c2[8] = "--", m1[8] = "--:--", m2[8] = "--:--";
+            if (plotter::sunTimes(y, mo, d, a, b2, -0.833, r, st2)) {
+                hm(r1, sizeof r1, r); hm(r2, sizeof r2, st2);
+                if (plotter::sunTimes(y, mo, d, a, b2, -6, cr, cs)) { hm(c1, sizeof c1, cr); hm(c2, sizeof c2, cs); }
+                kvBoat.addf("Sun", P->fg, "%s-%s UTC, civil twilight %s-%s", r1, r2, c1, c2);
+            } else kvBoat.add("Sun", "no sunrise or sunset today");
+            const double age = plotter::moonAgeDays(y, mo, d, hh);
+            plotter::moonTimes(y, mo, d, a, b2, mr, hr, ms, hs);
+            if (hr) hm(m1, sizeof m1, mr);
+            if (hs) hm(m2, sizeof m2, ms);
+            kvBoat.addf("Moon", P->fg, "%s, %d %%, rises %s, sets %s UTC", plotter::moonPhaseNameEn(plotter::moonPhase8(age)),
+                        (int)lround(plotter::moonIllumination(age) * 100), m1, m2);
+        }
+    }
+    // AIS: cuantos y los mas cercanos (los peligrosos primero)
+    plotter::AisTargets& t = boat::targets();
+    if (t.count()) {
+        const int dz = t.dangerousCount();
+        kvBoat.addf("AIS", P->fg, "%d targets", t.count());
+        if (dz) kvBoat.addf("Collision risk", P->red, "%d", dz);
+        int idx[3];
+        const int n = t.sorted(idx, L.sz == Size::S ? 2 : 3);
+        for (int i = 0; i < n; i++) {
+            const plotter::AisTarget& v = t.at(idx[i]);
+            char nm[40];
+            if (v.name[0]) snprintf(nm, sizeof nm, "%s", v.name); else snprintf(nm, sizeof nm, "%lu", (unsigned long)v.mmsi);
+            if (v.hasRange && v.hasCpa && v.tcpaMin > 0)
+                kvBoat.addf(nm, v.dangerous ? P->red : P->fg, "%.2f nm %03.0f\xC2\xB0, CPA %.2f nm in %.0f min", v.rangeNm, v.bearing, v.cpaNm, v.tcpaMin);
+            else if (v.hasRange)
+                kvBoat.addf(nm, P->fg, "%.2f nm %03.0f\xC2\xB0", v.rangeNm, v.bearing);
+            else
+                kvBoat.add(nm, "no position", P->mut);
+        }
+        any = true;
+    }
+    const boat::Stats& bs = boat::stats();
+    if (bs.skSeq && (!strcmp(bs.skState, "alarm") || !strcmp(bs.skState, "emergency")))
+        kvBoat.addf("Signal K", P->red, "%s: %s", bs.skState, bs.skMessage[0] ? bs.skMessage : bs.skKey);
+    if (!any) kvBoat.add("-", "No data yet: set up the network below", P->mut);
+    kvBoat.end();
+}
+
+static void fillLan(uint32_t now) {
+    const net::Status& ns = net::status();
+    const net::Config& cf = boat::config();
+    const boat::Stats& bs = boat::stats();
+    char b[64];
+    kvLan.begin();
+    if (!cf.ssid[0]) kvLan.add("Wi-Fi", "off", P->mut);
+    else if (ns.wifi) kvLan.addf("Wi-Fi", P->green, "%s, %d dBm", cf.ssid, ns.rssi);
+    else kvLan.addf("Wi-Fi", P->yel, "connecting to %s", cf.ssid);
+    if (ns.wifi) kvLan.add("IP", ns.ip);
+    if (cf.tcpKind != net::TCP_OFF) {
+        kvLan.addf("Server", ns.tcp ? P->green : P->yel, "%s %s:%d, %s", boat::kindName(cf.tcpKind), cf.host[0] ? cf.host : "gateway", cf.tcpPort,
+                   ns.tcp ? "connected" : "waiting");
+    } else {
+        kvLan.add("Server", "off", P->mut);
+    }
+    if (cf.udpPort) kvLan.addf("UDP", P->fg, "port %d, %lu lines", cf.udpPort, (unsigned long)bs.udpLines);
+    if (cf.tcpKind == net::TCP_SIGNALK) kvLan.addf("Received", P->fg, "%lu lines, %lu values", (unsigned long)bs.tcpLines, (unsigned long)bs.skValues);
+    else if (cf.tcpKind != net::TCP_OFF) kvLan.addf("Received", P->fg, "%lu lines", (unsigned long)bs.tcpLines);
+    if (bs.netLastMs) { fmtAgeMs(b, sizeof b, now - bs.netLastMs); kvLan.addf("Last data", P->fg, "%s ago", b); }
+    if (bs.aisMessages) kvLan.addf("AIS messages", P->fg, "%lu", (unsigned long)bs.aisMessages);
+    if (cf.owmKey[0]) {
+        if (bs.wxMs) { fmtAgeMs(b, sizeof b, now - bs.wxMs); kvLan.addf("Weather", P->yel, "%s, %s ago (OpenWeatherMap)", bs.wxPlace[0] ? bs.wxPlace : "-", b); }
+        else kvLan.addf("Weather", P->mut, "%s", ns.wxFail ? "request failed" : "waiting for a position");
+    }
+    kvLan.end();
+}
+
+// Cabecera roja como la del rotor: icono, "APRS LoRa+" en negrita y debajo "Display <version>" (solo en la 7"); a la derecha el enlace BLE
 static void buildHeader() {
     lv_obj_t* top = lv_obj_create(scr);
     lv_obj_remove_style_all(top);
@@ -749,12 +1157,16 @@ static void buildHeader() {
     const int tx = L.iconPx + L.pad + (L.sz == Size::L ? 6 : 0);
     lv_obj_t* title = label(top, "APRS LoRa+", L.fTitle);
     lv_obj_set_style_text_color(title, C(P->hdrTitle), 0);
-    lv_obj_t* sub = label(top, "Display " DISPLAY_VERSION, L.fSub);
-    lv_obj_set_style_text_color(sub, C(P->sub), 0);
     const int th = lv_font_get_line_height(L.fTitle), sh = lv_font_get_line_height(L.fSub);
     const int y0 = (L.topH - th - sh) / 2;
-    lv_obj_set_pos(title, tx, y0 - 1);
-    lv_obj_set_pos(sub, tx, y0 + th - 3);
+    if (L.sz == Size::L) {                                      // 7": debajo "Display <version>"
+        lv_obj_t* sub = label(top, "Display " DISPLAY_VERSION, L.fSub);
+        lv_obj_set_style_text_color(sub, C(P->sub), 0);
+        lv_obj_set_pos(title, tx, y0 - 1);
+        lv_obj_set_pos(sub, tx, y0 + th - 3);
+    } else {                                                    // menos de 7": solo el titulo (la version esta en Settings > About)
+        lv_obj_set_pos(title, tx, (L.topH - th) / 2);
+    }
 
     topLink1 = label(top, "", L.fSub);                          // nombre del tracker (o estado)
     topLink2 = label(top, "BLE", L.fSub);                       // "BLE ●" enlazado
@@ -827,7 +1239,7 @@ void begin(proto::Model* model, int theme, void (*onThemeChange)(int)) {
     struct { const char* text; const char* icon; lv_obj_t** tab; } T[] = {
         {"Status", LV_SYMBOL_HOME, &tabDash}, {"Heard", LV_SYMBOL_LIST, &tabHeard}, {"Messages", LV_SYMBOL_ENVELOPE, &tabMsgs},
         {"Sensors", LV_SYMBOL_BATTERY_FULL, &tabSens}, {"SAT / Rotor", LV_SYMBOL_GPS, &tabSat}, {"Mirror", LV_SYMBOL_EYE_OPEN, &tabMirror},
-        {"DAPNET", LV_SYMBOL_BELL, &tabPages}, {"Settings", LV_SYMBOL_SETTINGS, &tabSet}};
+        {"DAPNET", LV_SYMBOL_BELL, &tabPages}, {"Network", LV_SYMBOL_WIFI, &tabNet}, {"Settings", LV_SYMBOL_SETTINGS, &tabSet}};
     for (auto& t : T) *t.tab = lv_tabview_add_tab(tabs, L.tabIcons ? t.icon : t.text);
     for (uint32_t i = 0; i < lv_obj_get_child_count(bar); i++) {
         lv_obj_t* b = lv_obj_get_child(bar, i);
@@ -844,7 +1256,7 @@ void begin(proto::Model* model, int theme, void (*onThemeChange)(int)) {
     lv_obj_set_style_text_color(kb, C(P->btnText), LV_PART_ITEMS);
     lv_obj_set_hidden(kb, true);
 
-    buildDash(); buildHeard(); buildMsgs(); buildSens(); buildSat(); buildMirror(); buildPages(); buildSet();
+    buildDash(); buildHeard(); buildMsgs(); buildSens(); buildSat(); buildMirror(); buildPages(); buildNet(); buildSet();
 
     // las columnas se reparten con el ancho real de cada tabla, que se conoce despues de colocar todo
     lv_obj_update_layout(scr);
@@ -885,7 +1297,24 @@ void update() {
     kvSet.add("Board", M->info.ok ? M->info.board.c_str() : "-");
     kvSet.add("Firmware", M->info.ok ? M->info.fw.c_str() : "-");
     kvSet.add("Display", BOARD_ENV " " DISPLAY_VERSION);
+    {                                                           // reloj interno: hora UTC y quien la puso (GPS, NTP del ROA)
+        const time_t tt = (time_t)tsync::now();
+        const tsync::Status ts = tsync::status();
+        if (!tt) kvSet.add("Clock", "not set", P->mut);
+        else {
+            struct tm u;
+            gmtime_r(&tt, &u);
+            const bool synced = ts.source != plotter::TimeSource::None;
+            kvSet.addf("Clock", synced ? P->fg : P->yel, "%02d:%02d:%02d UTC (%s)", u.tm_hour, u.tm_min, u.tm_sec,
+                       synced ? (ts.source == plotter::TimeSource::Gps ? "GPS" : plotter::timeSourceName(ts.source)) : "not synced");
+        }
+    }
     kvSet.end();
+
+    // red local: una vez por segundo (no depende del tracker)
+    static uint32_t tNet = 0;
+    const uint32_t nowMs = lv_tick_get();
+    if (nowMs - tNet >= 1000 || !tNet) { tNet = nowMs ? nowMs : 1; fillBoat(nowMs); fillLan(nowMs); fillAlerts(); checkAlertWin(); }
 
     if (M->revision == drawnRev) return;
     drawnRev = M->revision;
@@ -987,7 +1416,11 @@ void update() {
             kvNet.addf("Source", P->fg, "%s%s%s, %u min ago", n.src.c_str(), n.place.empty() ? "" : " \xC2\xB7 ", n.place.c_str(), (unsigned)(n.age / 60));
             if (!n.desc.empty()) kvNet.add("Sky", n.desc.c_str());
             if (n.t > -900) kvNet.addf("Temperature", P->fg, "%.1f \xC2\xB0" "C", n.t);
-            if (n.h >= 0) kvNet.addf("Humidity", P->fg, "%.0f %%", n.h);
+            if (n.h >= 0) {
+                const double dp = n.t > -900 ? plotter::dewPointC(n.t, n.h) : NAN;
+                if (std::isnan(dp)) kvNet.addf("Humidity", P->fg, "%.0f %%", n.h);
+                else kvNet.addf("Humidity", P->fg, "%.0f %%, dew point %.1f \xC2\xB0" "C", n.h, dp);
+            }
             if (n.p > 0) {
                 if (n.d3 > -900) kvNet.addf("Pressure", P->fg, "%.1f hPa (sea level), %+.1f in 3 h", n.p, n.d3);
                 else kvNet.addf("Pressure", P->fg, "%.1f hPa (sea level)", n.p);
@@ -997,7 +1430,8 @@ void update() {
                 char w[64];
                 int k = snprintf(w, sizeof w, "%.1f m/s", n.ws);
                 if (n.wg >= 0) k += snprintf(w + k, sizeof w - k, ", gusts %.1f", n.wg);
-                if (n.wd >= 0) snprintf(w + k, sizeof w - k, " from %d\xC2\xB0", n.wd);
+                if (n.wd >= 0) k += snprintf(w + k, sizeof w - k, " from %d\xC2\xB0", n.wd);
+                snprintf(w + k, sizeof w - k, ", force %d", plotter::beaufort(n.ws / 0.514444));
                 kvNet.add("Wind", w);
             }
             if (n.rain >= 0) kvNet.addf("Rain", P->fg, "%.1f mm/h", n.rain);

@@ -12,7 +12,7 @@ jobs:
     build:
         runs-on: ubuntu-latest
         env:
-            BOARDS: waveshare_lcd7b waveshare_lcd7b_v2 waveshare_lcd7 waveshare_lcd7_v2 waveshare_lcd35 waveshare_lcd28b waveshare_lcd169
+            BOARDS: waveshare_lcd7b waveshare_lcd7b_v2 waveshare_lcd7 waveshare_lcd7_v2 waveshare_lcd35 waveshare_lcd28b waveshare_lcd169 waveshare_lcd7b_hamclock
         steps:
             - uses: actions/checkout@v4
 
@@ -33,7 +33,7 @@ jobs:
                   restore-keys: pio3-
 
             # Las descargas de GitHub Releases dan 504 de vez en cuando: reintentar.
-            - name: Compilar las cuatro placas
+            - name: Compilar todos los entornos
               run: |
                   for e in $BOARDS; do
                       ok=0
@@ -55,10 +55,18 @@ jobs:
             - name: Pruebas del protocolo (PC)
               run: |
                   AJ=$(find .pio/libdeps -type d -path '*ArduinoJson/src' | head -1)
-                  g++ -std=c++17 -Wall -Wextra -Werror -I src -I "$AJ" test/test_protocol.cpp src/protocol.cpp -o /tmp/test_protocol
+                  g++ -std=c++17 -Wall -Wextra -Werror -I src -I lib/plotter_core/src -I "$AJ" test/test_protocol.cpp src/protocol.cpp lib/plotter_core/src/alerts.cpp lib/plotter_core/src/minijson.cpp lib/plotter_core/src/geo.cpp -o /tmp/test_protocol
                   /tmp/test_protocol
-                  g++ -std=c++17 -Wall -Wextra -Werror -I src -I "$AJ" test/test_extra.cpp src/rotor_proto.cpp src/dxcluster.cpp src/wxcalc.cpp src/astro.cpp src/wxwarn.cpp -o /tmp/test_extra
+                  g++ -std=c++17 -Wall -Wextra -Werror -I src -I lib/plotter_core/src -I "$AJ" test/test_extra.cpp src/rotor_proto.cpp src/dxcluster.cpp src/wxc7.cpp lib/plotter_core/src/astro.cpp lib/plotter_core/src/geo.cpp src/wxwarn.cpp -o /tmp/test_extra
                   /tmp/test_extra
+
+            - name: Pruebas del reloj (PC)
+              run: |
+                  AJ=$(find .pio/libdeps -type d -path '*ArduinoJson/src' | head -1)
+                  g++ -std=c++17 -Wall -Wextra -Werror -I src/hamclock -I "$AJ" test/test_hamclock.cpp src/hamclock/hc_model.cpp -o /tmp/test_hamclock
+                  /tmp/test_hamclock
+                  g++ -std=c++17 -Wall -Wextra -Werror -I src/hamclock test/test_rig.cpp src/hamclock/hc_rig.cpp -o /tmp/test_rig
+                  /tmp/test_rig
 
             - name: Tamano
               run: |

@@ -12,7 +12,7 @@
 
 namespace proto { struct Model; }
 
-namespace net {
+namespace net7 {
 
 void setModel(proto::Model* m);   // el modelo del tracker (posicion para el tiempo, eventos ota)
 void begin();                       // tareas y WiFi con los ajustes guardados
@@ -65,4 +65,4 @@ void fwCheck(const std::string& board);
 void fwInstall(const std::string& board);
 void fwCancel();
 
-} // namespace net
+} // namespace net7

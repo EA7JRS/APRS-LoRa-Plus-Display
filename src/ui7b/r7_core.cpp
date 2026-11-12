@@ -9,11 +9,11 @@
 #include "r7.h"
 #include "ui.h"
 #include "board.h"
-#include "net.h"
+#include "net7.h"
 #include "settings.h"
 #include "tracker_link.h"
 #include "ui_assets.h"
-#include "wxcalc.h"
+#include "wxc7.h"
 #include <src/lvgl_private.h>
 #include <cmath>
 #include <cstdarg>
@@ -83,7 +83,7 @@ static int64_t daysFromCivil(int y, unsigned m, unsigned d) {
 }
 bool utcNow(int& y, int& mo, int& d, int& h, int& mi, int& s) {
     int64_t ep = 0;
-    if (net::timeValid()) ep = (int64_t)time(nullptr);
+    if (net7::timeValid()) ep = (int64_t)time(nullptr);
     else {
         if (M && M->gnss.ok && M->gnss.utc.size() >= 19 && M->gnss.utc != gnssUtcSeen) {
             int Y, Mo, D, Hh, Mi, Ss;
@@ -857,11 +857,11 @@ static void refreshStatus() {
     setText(stCall, call.empty() ? "NOCALL" : call.c_str());
     lampSet(stBle, lk || trk::state() == trk::State::Pairing, lk ? P->green : P->cyan);
     lampSet(stGps, M->gnss.ok && M->gnss.fix);
-    net::Link rl = net::rotorState();
+    net7::Link rl = net7::rotorState();
     const bool rotOn = cfg::get().rotorLink != 0;
     show(lv_obj_get_parent(stRot), rotOn);
-    lampSet(stRot, rl == net::Link::Linked || rl == net::Link::Connecting, rl == net::Link::Linked ? P->green : P->cyan);
-    net::Wifi w = net::wifi();
+    lampSet(stRot, rl == net7::Link::Linked || rl == net7::Link::Connecting, rl == net7::Link::Linked ? P->green : P->cyan);
+    net7::Wifi w = net7::wifi();
     show(lv_obj_get_parent(stWifi), w.configured);
     lampSet(stWifi, w.connected);
     char b[32] = "";
@@ -1000,10 +1000,10 @@ void openSideMenu() {
     sideItem(p, "Messages", M->msgUnread ? b : "", MSGS, s == MSGS);
     sideItem(p, "DAPNET pager", "", PAGER, s == PAGER);
     snprintf(b, sizeof b, "%d", (int)DX.spots.size());
-    sideItem(p, "DX cluster", net::dxState() == net::Link::Linked ? b : "", DXC, s == DXC);
+    sideItem(p, "DX cluster", net7::dxState() == net7::Link::Linked ? b : "", DXC, s == DXC);
     lv_obj_set_style_margin_top(section(p, "DEVICES"), 12, 0);
     sideItem(p, "Tracker", M->info.ok ? M->info.board.c_str() : trk::stateText(), TRACKER, s == TRACKER);
-    sideItem(p, "Rotor box", cfg::get().rotorLink ? net::rotorStateText() : "off", ROTOR, s == ROTOR);
+    sideItem(p, "Rotor box", cfg::get().rotorLink ? net7::rotorStateText() : "off", ROTOR, s == ROTOR);
     sideItem(p, "Settings", "", SETTINGS, s == SETTINGS);
     lv_obj_set_style_margin_top(section(p, "RADIO TOOLS"), 12, 0);
     sideItem(p, "Satellites", M->sat.ok ? M->sat.name.c_str() : "", SAT, s == SAT);

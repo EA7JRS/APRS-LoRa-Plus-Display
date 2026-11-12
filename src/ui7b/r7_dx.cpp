@@ -8,7 +8,7 @@
  */
 #ifdef UI_RADIO
 #include "r7.h"
-#include "net.h"
+#include "net7.h"
 #include "settings.h"
 #include <cstdio>
 #include <cstring>
@@ -19,9 +19,9 @@ namespace r7 {
 void pumpLinks() {
     std::string l;
     int n = 0;
-    while (n++ < 20 && net::rotorPoll(l)) rotp::apply(RM, l.c_str());
+    while (n++ < 20 && net7::rotorPoll(l)) rotp::apply(RM, l.c_str());
     n = 0;
-    while (n++ < 30 && net::dxPoll(l)) {
+    while (n++ < 30 && net7::dxPoll(l)) {
         dx::Spot s;
         if (dx::parse(l, s)) {
             s.atMs = nowMs();
@@ -43,15 +43,15 @@ static const char* BANDS[] = {"ALL", "160m", "80m", "40m", "30m", "20m", "17m", 
 static std::string bandsShown;
 
 static void onConn(lv_event_t*) {
-    if (net::dxState() == net::Link::Linked || net::dxState() == net::Link::Connecting) { net::dxDisconnect(); return; }
-    if (!net::wifi().connected) { error("The DX cluster needs WiFi (Settings > WiFi)"); return; }
+    if (net7::dxState() == net7::Link::Linked || net7::dxState() == net7::Link::Connecting) { net7::dxDisconnect(); return; }
+    if (!net7::wifi().connected) { error("The DX cluster needs WiFi (Settings > WiFi)"); return; }
     if (cfg::get().dxCall.empty() && myCall().empty()) { error("Set the login callsign (Settings > DX cluster)"); return; }
     if (cfg::get().dxCall.empty()) {
         std::string c = myCall();
         size_t d = c.find('-');
         cfg::get().dxCall = d == std::string::npos ? c : c.substr(0, d);             // el indicativo base, sin SSID
     }
-    net::dxConnect();
+    net7::dxConnect();
 }
 static void onFilt(lv_event_t* e) {
     cfg::Settings& s = cfg::get();
@@ -70,13 +70,13 @@ static void onBand(lv_event_t* e) { int i = (int)(intptr_t)lv_event_get_user_dat
 static void onCmd(lv_event_t*) {
     std::string c = lv_textarea_get_text(xCmd);
     if (c.empty()) return;
-    net::dxSend(c);
+    net7::dxSend(c);
     DX.console.push_back("> " + c);
     lv_textarea_set_text(xCmd, "");
     DX.seq++;
 }
 static void onCmdReady(lv_event_t* e) { if (lv_event_get_code(e) == LV_EVENT_READY) onCmd(e); }
-static void onShDx(lv_event_t*) { net::dxSend("sh/dx 30"); }
+static void onShDx(lv_event_t*) { net7::dxSend("sh/dx 30"); }
 static lv_obj_t* makeSpot(lv_obj_t* p) {
     lv_obj_t* r = row(p, 12);
     lv_obj_set_height(r, 46);
@@ -96,11 +96,11 @@ static lv_obj_t* makeSpot(lv_obj_t* p) {
 static void onSpot(lv_event_t* e) { int i = clickIndex(e); if (i >= 0 && i < (int)xView.size()) { xSel = xView[i]; requestRefresh(); } }
 static void onTune(lv_event_t*) {
     if (xSel < 0 || xSel >= (int)DX.spots.size()) return;
-    if (net::rotorState() != net::Link::Linked || !RM.info.cat) { error("TUNE sends the frequency to the radio of the rotor box (CAT): link it first"); return; }
+    if (net7::rotorState() != net7::Link::Linked || !RM.info.cat) { error("TUNE sends the frequency to the radio of the rotor box (CAT): link it first"); return; }
     const dx::Spot& s = DX.spots[xSel];
-    net::rotorSend(rotp::catSet("f", s.khz * 1000.0));
+    net7::rotorSend(rotp::catSet("f", s.khz * 1000.0));
     const char* m = s.mode == "CW" ? "CW" : s.mode == "DIG" ? "PKTUSB" : s.khz < 10000 ? "LSB" : "USB";
-    net::rotorSend(rotp::catSetText("m", m));
+    net7::rotorSend(rotp::catSetText("m", m));
     notice("Radio tuned");
 }
 static void onCloseDet(lv_event_t*) { xSel = -1; requestRefresh(); }
@@ -148,10 +148,10 @@ static void buildDx(lv_obj_t* root) {
 }
 static void refreshDx() {
     const cfg::Settings& s = cfg::get();
-    net::Link st = net::dxState();
-    setTextf(xState, "%s \xC2\xB7 %s:%d", net::dxStateText(), s.dxHost.c_str(), s.dxPort);
-    setText(lv_obj_get_child(xConn, 0), st == net::Link::Off || st == net::Link::Failed ? "CONNECT" : "DISCONNECT");
-    buttonColor(xConn, st == net::Link::Off || st == net::Link::Failed ? P->green : P->amber);
+    net7::Link st = net7::dxState();
+    setTextf(xState, "%s \xC2\xB7 %s:%d", net7::dxStateText(), s.dxHost.c_str(), s.dxPort);
+    setText(lv_obj_get_child(xConn, 0), st == net7::Link::Off || st == net7::Link::Failed ? "CONNECT" : "DISCONNECT");
+    buttonColor(xConn, st == net7::Link::Off || st == net7::Link::Failed ? P->green : P->amber);
     bool fs[6] = {s.dxHuman, s.dxRbnCw, s.dxRbnDig, s.dxCw, s.dxPho, s.dxDig};
     for (int i = 0; i < 6; i++) chipSet(xF[i], fs[i], i < 3 ? P->cyan : P->amber);
     for (int i = 0; i < 12; i++) chipSet(lv_obj_get_child(xBands, i), i == 0 ? s.dxBand.empty() : s.dxBand == BANDS[i]);
@@ -160,7 +160,7 @@ static void refreshDx() {
     xView.clear();
     for (size_t i = 0; i < DX.spots.size() && xView.size() < 80; i++) if (dx::pass(f, DX.spots[i])) xView.push_back((int)i);
     show(xEmpty, xView.empty());
-    setText(xEmpty, st == net::Link::Linked ? "No spots pass the filters yet." : "Connect to a DX cluster node (WiFi needed). Default node: EA4URE.");
+    setText(xEmpty, st == net7::Link::Linked ? "No spots pass the filters yet." : "Connect to a DX cluster node (WiFi needed). Default node: EA4URE.");
     xList.begin();
     char b[24];
     for (int i : xView) {

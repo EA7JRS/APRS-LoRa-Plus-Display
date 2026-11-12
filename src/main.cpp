@@ -11,11 +11,13 @@
 #include <Preferences.h>
 #include <lvgl.h>
 #include "board.h"
+#include "boat_link.h"
+#include "alerts_net.h"
 #include "protocol.h"
 #include "tracker_link.h"
 #include "ui.h"
 #ifdef UI_RADIO
-#include "net.h"
+#include "net7.h"
 #include "settings.h"
 #endif
 
@@ -71,6 +73,7 @@ static uint32_t tickMs() { return millis(); }
 void setup() {
     Serial.begin(115200);
     Serial.println("\n=== APRS LoRa+ Display " DISPLAY_VERSION " (" BOARD_ENV ") ===");
+    Serial.println("[INFO][Main] APRS LoRa+ (c) 2026 Manuel - EA7JRS");      // la misma linea en todos los equipos APRS LoRa+
     bool ok = board::begin();
 
     lv_init();
@@ -95,8 +98,10 @@ void setup() {
 #ifdef UI_RADIO
     cfg::load();
     board::setBacklight(cfg::get().backlight);
-    net::setModel(&model);
-    net::begin();
+    net7::setModel(&model);
+    net7::begin();                                     // WiFi, rotor, DX Cluster, mapas, avisos (src/net7.cpp)
+#else
+    boat::begin();                                      // red local: WiFi, servidor TCP, UDP (pestana Network)
 #endif
     ui::begin(&model, loadTheme(), saveTheme);
     if (!ok) Serial.println("La placa no ha arrancado bien: revisar docs/HARDWARE.md");
@@ -119,6 +124,8 @@ static void scheduler() {
 #else
         trk::send(proto::cmdMsgs(0, 10));
 #endif
+        trk::send(proto::cmdAlerts(0, 12));            // avisos oficiales y tiempo espacial (firmware con caps.alerts)
+        trk::send(proto::cmdSimple("spacewx"));
         tStatus = tHeard = tMsgs = now;
     }
     if (s != trk::State::Linked && last == trk::State::Linked) { model.revision++; }
@@ -140,6 +147,13 @@ static void scheduler() {
     if (now - tHeard > (ui::heardVisible() ? 5000u : 20000u)) { tHeard = now; trk::send(proto::cmdHeard(0, 12)); }
     if (now - tMsgs > (ui::messagesVisible() ? 8000u : 30000u)) { tMsgs = now; trk::send(proto::cmdMsgs(0, 10)); }
 #endif
+    // la lista de avisos del tracker cambio (evento alertsv) o faltan paginas: se pide
+    static uint32_t tAlerts = 0, tSpace = 0;
+    if ((model.alertsVerTracker != model.alertsVer || model.alertsPending) && now - tAlerts > 2000) {
+        tAlerts = now;
+        trk::send(proto::cmdAlerts(model.alertsPending ? (int)model.alerts.size() : 0, 12));
+    }
+    if (now - tSpace > 15 * 60000u) { tSpace = now; trk::send(proto::cmdSimple("spacewx")); }
 }
 
 // Instalador web: por USB contesta a "APRS-INFO?" como el resto de dispositivos APRS LoRa+.
@@ -177,7 +191,21 @@ void loop() {
     }
     scheduler();
 #ifdef UI_RADIO
-    net::loop();
+    net7::loop();
+#else
+    // posicion del tracker a la tabla de datos de la red (por debajo de gpsd, Signal K o NMEA de la red)
+    static uint32_t fedRev = 0;
+    if (trk::state() == trk::State::Linked && model.gnss.fix && model.revision != fedRev) {
+        fedRev = model.revision;
+        boat::trackerFix(model.gnss.lat, model.gnss.lon, model.gnss.spd / 1.852, model.gnss.crs, millis());
+        if (!model.gnss.utc.empty()) boat::trackerTime(model.gnss.utc.c_str());
+    }
+    boat::loop(millis());
+    {                                                   // avisos oficiales de la WiFi propia (tarea aparte)
+        std::vector<plotter::Alert> v;
+        plotter::SpaceWx sw;
+        if (alertsnet::take(v, sw)) ui::setNetAlerts(v, sw);
+    }
 #endif
     static uint32_t t = 0;
     if (millis() - t > 300) { t = millis(); ui::update(); }

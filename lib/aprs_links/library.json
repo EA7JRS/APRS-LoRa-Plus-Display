@@ -1,0 +1,13 @@
+{
+    "name": "aprs_links",
+    "version": "5.4.4",
+    "description": "Conectividad de APRS LoRa+ para ESP32-S3: WiFi cliente, un servidor TCP (NMEA 0183, gpsd o Signal K) y escucha UDP en una tarea aparte (net), Bluetooth central (servicio NMEA de BLE_NMEA.md, UART de Nordic y tracker APRS LoRa+ con PIN; ble) y lector JSON de Signal K (sk_link). Usa plotter_core.",
+    "license": "GPL-3.0-or-later",
+    "authors": [{ "name": "Manuel - EA7JRS" }],
+    "frameworks": "arduino",
+    "platforms": "espressif32",
+    "dependencies": [
+        { "name": "NimBLE-Arduino", "owner": "h2zero", "version": "2.5.2" },
+        { "name": "ArduinoJson", "owner": "bblanchon", "version": "7.4.3" }
+    ]
+}

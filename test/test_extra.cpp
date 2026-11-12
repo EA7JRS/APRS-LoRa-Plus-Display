@@ -6,7 +6,7 @@
 // g++ -std=c++17 -I src -I <ArduinoJson>/src test/test_extra.cpp src/rotor_proto.cpp src/dxcluster.cpp -o /tmp/te && /tmp/te
 #include "rotor_proto.h"
 #include "dxcluster.h"
-#include "wxcalc.h"
+#include "wxc7.h"
 #include "wxwarn.h"
 #include "astro.h"
 #include <cmath>

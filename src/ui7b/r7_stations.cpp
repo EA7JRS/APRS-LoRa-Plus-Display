@@ -7,9 +7,9 @@
  */
 #ifdef UI_RADIO
 #include "r7.h"
-#include "net.h"
+#include "net7.h"
 #include "maptiles.h"
-#include "wxcalc.h"
+#include "wxc7.h"
 #include <map>
 #include "settings.h"
 #include <algorithm>
@@ -148,8 +148,8 @@ static void onRotor(lv_event_t*) {
     const proto::Heard* h = findCall(arg());
     double la, lo;
     if (!h || !h->hasPos || !ownPos(la, lo)) { error("This station has no position (or the tracker no GNSS fix)"); return; }
-    if (cfg::get().rotorLink && net::rotorState() == net::Link::Linked) {
-        net::rotorSend(rotp::goTo((float)proto::bearingDeg(la, lo, h->lat, h->lon), 0, false));
+    if (cfg::get().rotorLink && net7::rotorState() == net7::Link::Linked) {
+        net7::rotorSend(rotp::goTo((float)proto::bearingDeg(la, lo, h->lat, h->lon), 0, false));
         notice("Rotor box: going to the station's bearing");
     } else {
         // el rotor del tracker: fuente 4 (ultima estacion oida) con el filtro de este indicativo
@@ -230,7 +230,7 @@ static void refreshStation() {
         setText(dDst, fmtKm(proto::distanceKm(la, lo, h->lat, h->lon)).c_str());
     } else { setText(dBrg, "-"); setText(dDst, h->hasPos ? "no own fix" : "no position"); }
     float rot = RM.pos.az;
-    const bool rotOk = RM.pos.ok && net::rotorState() == net::Link::Linked;
+    const bool rotOk = RM.pos.ok && net7::rotorState() == net7::Link::Linked;
     float own = M->gnss.crs;
     dComp->set(0, pos ? &brg : nullptr, rotOk ? &rot : nullptr, M->gnss.ok && M->gnss.spd > 3 ? &own : nullptr);
     dRows.begin();
@@ -323,7 +323,7 @@ static void radarDraw(lv_event_t* e) {
     lv_area_t na = {cx - 12, cy - R - 16, cx + 12, cy - R + 8};
     lv_draw_label(layer, &td, &na);
     // rumbo del rotor
-    if (RM.pos.ok && net::rotorState() == net::Link::Linked) {
+    if (RM.pos.ok && net7::rotorState() == net7::Link::Linked) {
         float t = RM.pos.az * (float)M_PI / 180;
         ld.color = C(P->cyan); ld.width = 3;
         ld.p1.x = cx; ld.p1.y = cy; ld.p2.x = cx + R * sinf(t); ld.p2.y = cy - R * cosf(t);
@@ -467,7 +467,7 @@ static void tilesDraw(lv_event_t* e) {
     int ox = 0, oy = 0;
     const bool ownIn = own && project(ola, olo, ox, oy);
     // haz del rotor
-    if (own && RM.pos.ok && net::rotorState() == net::Link::Linked) {
+    if (own && RM.pos.ok && net7::rotorState() == net7::Link::Linked) {
         project(ola, olo, ox, oy);
         const float t = RM.pos.az * (float)M_PI / 180, len = (float)(w > h ? w : h);
         lv_draw_line_dsc_t ld;
@@ -541,7 +541,7 @@ static void tilesDraw(lv_event_t* e) {
     tag(layer, a.x2 - textW(at.c_str(), &app_cond_16) - 8, a.y2 - lv_font_get_line_height(&app_cond_16) - 4, at.c_str(), &app_cond_16, P->text);
     const int pend = mapt::pending();
     const char* why = st.mapLayer == mapt::ESRI && st.arcgisKey.empty() ? "Esri needs your ArcGIS key (Settings)"
-        : !net::wifi().connected ? (net::sdOk() ? "No WiFi: only the tiles saved on the microSD" : "No WiFi and no microSD: no tiles") : nullptr;
+        : !net7::wifi().connected ? (net7::sdOk() ? "No WiFi: only the tiles saved on the microSD" : "No WiFi and no microSD: no tiles") : nullptr;
     if (why) tag(layer, a.x1 + 10, a.y1 + 8, why, &app_cond_18, P->amber);
     else if (pend) { snprintf(b, sizeof b, "loading %d", pend); tag(layer, a.x1 + 10, a.y1 + 8, b, &app_cond_16, P->muted); }
     snprintf(b, sizeof b, "z%d", z);
@@ -582,7 +582,7 @@ static void onLayer(lv_event_t*) {
     if (tiles() && st.mapZoom > zoomMax()) st.mapZoom = zoomMax();
     cfg::save();
     mapt::forget();
-    if (tiles()) net::mapBegin();
+    if (tiles()) net7::mapBegin();
     requestRefresh();
 }
 static void onSea(lv_event_t*) { cfg::get().mapSea = !cfg::get().mapSea; cfg::save(); mapt::forget(); requestRefresh(); }
@@ -607,7 +607,7 @@ void mapCenterOn(double lat, double lon) {
     if (!tiles()) { cfg::get().mapLayer = mapt::OSM; cfg::save(); }
     if (cfg::get().mapZoom < 13) cfg::get().mapZoom = 13;
 }
-static void enterMap() { enterSlist(); if (tiles()) net::mapBegin(); }
+static void enterMap() { enterSlist(); if (tiles()) net7::mapBegin(); }
 static void buildMap(lv_obj_t* root) {
     lv_obj_t* tr;
     header(root, "Map", &tr);

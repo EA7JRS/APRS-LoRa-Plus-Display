@@ -4,7 +4,7 @@
  *
  * Calculos meteorologicos (ver wxcalc.h).
  */
-#include "wxcalc.h"
+#include "wxc7.h"
 #include <cmath>
 
 namespace wxc {

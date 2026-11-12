@@ -8,10 +8,10 @@
  */
 #ifdef UI_RADIO
 #include "r7.h"
-#include "wxcalc.h"
+#include "wxc7.h"
 #include "astro.h"
 #include "settings.h"
-#include "net.h"
+#include "net7.h"
 #include "settings.h"
 #include <cmath>
 #include <cstdio>
@@ -97,10 +97,10 @@ std::string fkeySub(const std::string& id, int& lit) {
     if (id == "DISP") return "compass";
     if (id == "PAGER") { snprintf(b, sizeof b, "%d pages", (int)M->pages.size()); return b; }
     if (id == "DIGI") { if (M->status.digi) { lit = 1; return "ON"; } return "OFF"; }
-    if (id == "DX") { if (net::dxState() == net::Link::Linked) { lit = 1; snprintf(b, sizeof b, "%d spots", (int)DX.spots.size()); return b; } return "cluster"; }
+    if (id == "DX") { if (net7::dxState() == net7::Link::Linked) { lit = 1; snprintf(b, sizeof b, "%d spots", (int)DX.spots.size()); return b; } return "cluster"; }
     if (id == "SAT") { if (M->sat.ok) { lit = 1; return M->sat.name; } return "passes"; }
     if (id == "ROTOR") {
-        if (RM.pos.ok && net::rotorState() == net::Link::Linked) { snprintf(b, sizeof b, "%03.0f\xC2\xB0 / %.0f\xC2\xB0", RM.pos.az, RM.pos.el); return b; }
+        if (RM.pos.ok && net7::rotorState() == net7::Link::Linked) { snprintf(b, sizeof b, "%03.0f\xC2\xB0 / %.0f\xC2\xB0", RM.pos.az, RM.pos.el); return b; }
         if (M->rot.ok) { snprintf(b, sizeof b, "%03.0f\xC2\xB0 / %.0f\xC2\xB0", M->rot.az, M->rot.el); return b; }
         return "box";
     }
@@ -351,12 +351,12 @@ static BandB buildBandB(lv_obj_t* p, bool big, int w) {
 }
 static void refreshBandB(BandB& bb) {
     const rotp::Cat& c = RM.cat;
-    const bool on = net::rotorState() == net::Link::Linked && c.ok && c.link && c.f;
+    const bool on = net7::rotorState() == net7::Link::Linked && c.ok && c.link && c.f;
     show(bb.hint, !on);
     show(bb.f.obj, on);
     if (bb.big) show(bb.sm.obj, on);
     if (!on) {
-        setText(bb.title, net::rotorState() == net::Link::Linked && c.ok ? "CAT \xC2\xB7 radio not answering" : "NO RADIO");
+        setText(bb.title, net7::rotorState() == net7::Link::Linked && c.ok ? "CAT \xC2\xB7 radio not answering" : "NO RADIO");
         setText(bb.mode, "");
         show(bb.mode, false);
         return;
@@ -460,7 +460,7 @@ static void refreshRadioScr() {
     setText(tDigi, !lk ? "-" : M->status.digi ? "ON" : "OFF");
     setColor(tDigi, lk && M->status.digi ? P->green : P->text);
     char b[48];
-    if (net::rotorState() == net::Link::Linked && RM.pos.ok) snprintf(b, sizeof b, "%03.0f\xC2\xB0/%.0f\xC2\xB0", RM.pos.az, RM.pos.el);
+    if (net7::rotorState() == net7::Link::Linked && RM.pos.ok) snprintf(b, sizeof b, "%03.0f\xC2\xB0/%.0f\xC2\xB0", RM.pos.az, RM.pos.el);
     else if (M->rot.ok) snprintf(b, sizeof b, "%03.0f\xC2\xB0/%.0f\xC2\xB0", M->rot.az, M->rot.el);
     else snprintf(b, sizeof b, "-");
     setText(tRotor, b);
@@ -806,7 +806,7 @@ static void refreshDisp() {
             else name = "No satellite (SAT mode)";
         } else if (dTgt == 3) {
             name = "Rotor box";
-            if (RM.pos.ok && net::rotorState() == net::Link::Linked) { tdeg = RM.pos.az; have = true; snprintf(b, sizeof b, "%.0f\xC2\xB0", RM.pos.el); dist = b; }
+            if (RM.pos.ok && net7::rotorState() == net7::Link::Linked) { tdeg = RM.pos.az; have = true; snprintf(b, sizeof b, "%.0f\xC2\xB0", RM.pos.el); dist = b; }
             else if (M->rot.ok) { name = "Tracker rotor: " + M->rot.name; tdeg = M->rot.az; have = true; snprintf(b, sizeof b, "%.0f\xC2\xB0", M->rot.el); dist = b; }
         } else {
             name = "My course";
@@ -816,7 +816,7 @@ static void refreshDisp() {
         if (have) { snprintf(b, sizeof b, "%s %s", fmtDeg(tdeg).c_str(), proto::cardinal16(tdeg)); setText(dBearing, b); } else setText(dBearing, "-");
         setText(dDist, dist.c_str());
         float rot = RM.pos.az;
-        const bool rotOk = dTgt != 3 && RM.pos.ok && net::rotorState() == net::Link::Linked;
+        const bool rotOk = dTgt != 3 && RM.pos.ok && net7::rotorState() == net7::Link::Linked;
         dComp->set(hdgUp ? heading : 0, have ? &tdeg : nullptr, rotOk ? &rot : nullptr, heading >= 0 ? &heading : nullptr);
         setText(dSpd.unit, speedLabel());
         if (g.ok) { snprintf(b, sizeof b, "%.0f", g.spd * wxc::speedUnit(cfg::get().units).k); dSpd.set(b); dCrs.set(fmtDeg(g.crs).c_str()); } else { dSpd.set("-"); dCrs.set("-"); }
@@ -888,7 +888,7 @@ static void refreshDisp() {
         } else { setText(cUtc, "--:--:--"); setText(cDate, "no time yet (GNSS or WiFi)"); }
         setText(cLoc, g.ok && g.fix ? proto::locator(g.lat, g.lon).c_str() : "-");
         clkRows.begin();
-        clkRows.add("TIME FROM", net::timeValid() ? "internet (NTP)" : g.ok ? "tracker GNSS" : "-");
+        clkRows.add("TIME FROM", net7::timeValid() ? "internet (NTP)" : g.ok ? "tracker GNSS" : "-");
         if (M->status.ok) clkRows.addf("TRACKER UP", P->text, "%lu h %02lu min", (unsigned long)(M->status.up / 3600), (unsigned long)(M->status.up / 60 % 60));
         // sol y luna en la posicion propia (astro del nucleo del plotter: formulas de NOAA, alrededor de un minuto)
         double la, lo;

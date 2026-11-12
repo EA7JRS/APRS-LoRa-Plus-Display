@@ -7,7 +7,7 @@
  */
 #ifdef UI_RADIO
 #include "r7.h"
-#include "net.h"
+#include "net7.h"
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -175,7 +175,7 @@ static void refreshSat() {
     setText(sName, s.ok ? s.name.c_str() : "No satellite");
     chipSet(sFav, s.fav, P->amber);
     float az = s.az, rot = RM.pos.az;
-    const bool rotOk = RM.pos.ok && net::rotorState() == net::Link::Linked;
+    const bool rotOk = RM.pos.ok && net7::rotorState() == net7::Link::Linked;
     sComp->set(0, s.ok ? &az : nullptr, rotOk ? &rot : (M->rot.ok ? &M->rot.az : nullptr), nullptr);
     if (s.ok) { setTextf(sAz, "%.1f\xC2\xB0", s.az); setTextf(sEl, "%.1f\xC2\xB0", s.el); setColor(sEl, s.el > 0 ? P->green : P->text); }
     else { setText(sAz, "-"); setText(sEl, "-"); }

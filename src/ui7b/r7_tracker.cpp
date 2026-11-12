@@ -8,8 +8,8 @@
  */
 #ifdef UI_RADIO
 #include "r7.h"
-#include "wxcalc.h"
-#include "net.h"
+#include "wxc7.h"
+#include "net7.h"
 #include "settings.h"
 #include "tracker_link.h"
 #include <cstdio>
@@ -341,7 +341,7 @@ static void leaveTracker() { if (linked() && M->info.bcast != "none" && !M->info
 // ------------------------------------------------------------------ SENSORS
 static Rows sTr, sNet, sImu, sDisp;
 static lv_obj_t *sNetP, *sImuP;
-static void onWxNow(lv_event_t*) { net::wxNow(); notice("Downloading the internet weather..."); }
+static void onWxNow(lv_event_t*) { net7::wxNow(); notice("Downloading the internet weather..."); }
 static void buildSensors(lv_obj_t* root) {
     lv_obj_t* tr;
     header(root, "Sensors", &tr);
@@ -421,8 +421,8 @@ static void refreshSensors() {
     if (s.hasGyro) sImu.addf("GYRO (\xC2\xB0/s)", P->text, "%.1f  %.1f  %.1f", s.gyro[0], s.gyro[1], s.gyro[2]);
     sImu.end();
     sDisp.begin();
-    sDisp.add("INTERNET WEATHER", net::wxStatus().c_str());
-    net::Wifi w = net::wifi();
+    sDisp.add("INTERNET WEATHER", net7::wxStatus().c_str());
+    net7::Wifi w = net7::wifi();
     sDisp.add("WIFI", w.connected ? (w.ssid + " \xC2\xB7 " + w.ip).c_str() : w.configured ? "connecting..." : "not set (Settings)");
     sDisp.end();
 }

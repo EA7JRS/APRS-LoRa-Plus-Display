@@ -8,7 +8,7 @@
  */
 #ifdef UI_RADIO
 #include "r7.h"
-#include "net.h"
+#include "net7.h"
 #include "settings.h"
 #include <cmath>
 #include <cstdio>
@@ -17,10 +17,10 @@
 
 namespace r7 {
 
-static bool rotOn() { return net::rotorState() == net::Link::Linked; }
+static bool rotOn() { return net7::rotorState() == net7::Link::Linked; }
 static void rsend(const std::string& l) {
     if (!rotOn()) { error("The rotor box is not linked (Rotor > SETUP)"); return; }
-    net::rotorSend(l);
+    net7::rotorSend(l);
 }
 
 // ------------------------------------------------------------------ seguir y Doppler (los llama update())
@@ -48,7 +48,7 @@ void rotorFollowStep() {
     if (!have) return;
     if (fabsf(az - lastAz) < s.rotorStep && fabsf(el - lastEl) < s.rotorStep) return;
     lastAz = az; lastEl = el; lastSent = t;
-    net::rotorSend(rotp::goTo(az, el < 0 ? 0 : el, RM.info.hasEl));
+    net7::rotorSend(rotp::goTo(az, el < 0 ? 0 : el, RM.info.hasEl));
 }
 
 static std::string dopName;
@@ -57,7 +57,7 @@ static int dopTx = -1;
 void catDopplerStep() {
     if (!cfg::get().catDoppler || !rotOn() || !RM.info.cat) return;
     if (M->status.mode != 9 || !M->sat.ok || M->satTxs.empty()) {
-        if (!dopName.empty()) { net::rotorSend(rotp::catTrack(false, "", 0, 0, 0)); dopName.clear(); }
+        if (!dopName.empty()) { net7::rotorSend(rotp::catTrack(false, "", 0, 0, 0)); dopName.clear(); }
         return;
     }
     const uint32_t t = nowMs();
@@ -69,11 +69,11 @@ void catDopplerStep() {
     if (!tx) tx = &M->satTxs[0];
     if (M->sat.name != dopName || tx->i != dopTx) {                    // otro satelite o transmisor: modo, split y tono
         dopName = M->sat.name; dopTx = tx->i;
-        net::rotorSend(rotp::catSetText("m", rotp::satMode(tx->m.empty() ? tx->rx : tx->m)));
-        net::rotorSend(rotp::catSetFlag("split", tx->up != 0));
-        net::rotorSend(rotp::catSet("tone", tx->tone > 0 ? tx->tone : 0));
+        net7::rotorSend(rotp::catSetText("m", rotp::satMode(tx->m.empty() ? tx->rx : tx->m)));
+        net7::rotorSend(rotp::catSetFlag("split", tx->up != 0));
+        net7::rotorSend(rotp::catSet("tone", tx->tone > 0 ? tx->tone : 0));
     }
-    net::rotorSend(rotp::catTrack(true, M->sat.name, tx->dn, tx->up, M->sat.rr));
+    net7::rotorSend(rotp::catTrack(true, M->sat.name, tx->dn, tx->up, M->sat.rr));
 }
 
 // ------------------------------------------------------------------ pantalla
@@ -85,7 +85,7 @@ static Rows rInfo, rRaw;
 static int rTab = 0;
 static uint32_t catStep = 1000;
 
-static void onRTab(lv_event_t* e) { rTab = (int)(intptr_t)lv_event_get_user_data(e); if (rTab == 3 && rotOn()) net::rotorSend(rotp::cmd("raw")); requestRefresh(); }
+static void onRTab(lv_event_t* e) { rTab = (int)(intptr_t)lv_event_get_user_data(e); if (rTab == 3 && rotOn()) net7::rotorSend(rotp::cmd("raw")); requestRefresh(); }
 static void onGo(lv_event_t*) {
     const char* a = lv_textarea_get_text(rAzF);
     if (!*a) { error("Write the azimuth"); return; }
@@ -137,7 +137,7 @@ static void onPtt(lv_event_t* e) {
     if (c == LV_EVENT_PRESSED) rsend(rotp::catSetFlag("ptt", true));
     else if (c == LV_EVENT_RELEASED || c == LV_EVENT_PRESS_LOST) rsend(rotp::catSetFlag("ptt", false));
 }
-static void onDop(lv_event_t*) { cfg::get().catDoppler = !cfg::get().catDoppler; cfg::save(); if (!cfg::get().catDoppler && rotOn()) net::rotorSend(rotp::catTrack(false, "", 0, 0, 0)); requestRefresh(); }
+static void onDop(lv_event_t*) { cfg::get().catDoppler = !cfg::get().catDoppler; cfg::save(); if (!cfg::get().catDoppler && rotOn()) net7::rotorSend(rotp::catTrack(false, "", 0, 0, 0)); requestRefresh(); }
 static void onLinkType(lv_event_t* e) { cfg::get().rotorLink = (int)(intptr_t)lv_event_get_user_data(e); requestRefresh(); }
 static void onSaveLink(lv_event_t*) {
     cfg::Settings& s = cfg::get();
@@ -145,7 +145,7 @@ static void onSaveLink(lv_event_t*) {
     s.rotorBle = lv_textarea_get_text(rBle);
     s.rotorPin = lv_textarea_get_text(rPin);
     cfg::save();
-    net::rotorApply();
+    net7::rotorApply();
     notice(s.rotorLink == 0 ? "Rotor box link off" : "Connecting to the rotor box...");
 }
 static void onCal(lv_event_t* e) {
@@ -154,7 +154,7 @@ static void onCal(lv_event_t* e) {
     if (i == 0) rsend(rotp::cal("az", "a", deg));
     else if (i == 1) rsend(rotp::cal("az", "b", deg));
     else rsend(rotp::here("az", deg));
-    net::rotorSend(rotp::cmd("raw"));
+    net7::rotorSend(rotp::cmd("raw"));
 }
 static void doBoxReboot(void*) { rsend(rotp::cmd("reboot")); }
 static void onBoxReboot(lv_event_t*) { confirm("Restart the rotor box", "The box restarts and links again.", "RESTART", doBoxReboot, nullptr, true); }
@@ -285,7 +285,7 @@ static void refreshRotor() {
     const bool on = rotOn();
     const rotp::Pos& p = RM.pos;
     char b[200];
-    setText(rState, cfg::get().rotorLink ? net::rotorStateText() : "link off");
+    setText(rState, cfg::get().rotorLink ? net7::rotorStateText() : "link off");
     float az = p.az, taz = p.taz;
     rComp->set(0, on && p.hasTarget ? &taz : nullptr, on && p.ok ? &az : nullptr, nullptr);
     if (on && p.ok) {
@@ -343,7 +343,7 @@ static void refreshRotor() {
         if (!lv_obj_has_state(rPin, LV_STATE_FOCUSED) && !*lv_textarea_get_text(rPin)) lv_textarea_set_text(rPin, s.rotorPin.c_str());
         rInfo.begin();
         const rotp::Info& i = RM.info;
-        rInfo.add("LINK", net::rotorStateText(), on ? P->green : P->amber);
+        rInfo.add("LINK", net7::rotorStateText(), on ? P->green : P->amber);
         if (on && !RM.authOk && i.pin) rInfo.add("PIN", RM.authFailed ? "wrong PIN" : "not accepted yet", P->red);
         if (i.ok) {
             rInfo.add("BOX", (i.dev + " " + i.ver).c_str());
@@ -363,7 +363,7 @@ static void refreshRotor() {
         rRaw.end();
     }
 }
-static void enterRotor() { if (rotOn()) { net::rotorSend(rotp::cmd("get")); if (RM.info.cat) net::rotorSend(rotp::cmd("cat")); } }
+static void enterRotor() { if (rotOn()) { net7::rotorSend(rotp::cmd("get")); if (RM.info.cat) net7::rotorSend(rotp::cmd("cat")); } }
 
 void initRotor() { registerScreen(ROTOR, {"Rotor box", true, buildRotor, refreshRotor, enterRotor, nullptr}); }
 

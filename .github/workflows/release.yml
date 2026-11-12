@@ -24,7 +24,7 @@ jobs:
         runs-on: ubuntu-latest
         env:
             TAG: ${{ github.event.release.tag_name || inputs.tag }}
-            BOARDS: waveshare_lcd7b waveshare_lcd7b_v2 waveshare_lcd7 waveshare_lcd7_v2 waveshare_lcd35 waveshare_lcd28b waveshare_lcd169
+            BOARDS: waveshare_lcd7b waveshare_lcd7b_v2 waveshare_lcd7 waveshare_lcd7_v2 waveshare_lcd35 waveshare_lcd28b waveshare_lcd169 waveshare_lcd7b_hamclock
         steps:
             - uses: actions/checkout@v4
               with:

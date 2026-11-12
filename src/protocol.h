@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include "alerts.h"      // lib/plotter_core: modelo de los avisos oficiales
+
 namespace proto {
 
 constexpr float NA = -999.0f;              // sin dato
@@ -204,6 +206,14 @@ struct Model {
     std::string lastOk, lastError, lastErrorCmd;
     uint32_t okSeq = 0, errSeq = 0;
     uint32_t revision = 0;      // sube con cada cambio: la interfaz solo repinta si cambia
+    // Avisos oficiales del tracker (eventos "alertsv", "alerts", "spacewx"; los descarga la app con su internet o los decodifica la T-TWR)
+    std::vector<plotter::Alert> alerts;
+    uint32_t alertsVer = 0;        // version de la lista que se tiene
+    uint32_t alertsVerTracker = 0; // la ultima que anuncio el tracker (si es otra, hay que pedir "alerts")
+    int alertsTot = 0;
+    bool alertsPending = false;    // faltan paginas
+    plotter::SpaceWx space;
+    bool spaceOk = false;
 };
 
 // Aplica una linea JSON recibida del tracker. Devuelve false si no es JSON valido o no es un evento conocido.
@@ -257,6 +267,7 @@ std::string mhz(uint32_t hz);
 std::string subKhz(uint32_t hz);
 // Locator Maidenhead de 6 caracteres
 std::string locator(double lat, double lon);
+std::string cmdAlerts(int from, int cnt);
 
 // Recompone lineas a partir de trozos de notificaciones (el \n marca el fin).
 class LineBuffer {

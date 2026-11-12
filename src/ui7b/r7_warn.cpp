@@ -8,7 +8,7 @@
  */
 #ifdef UI_RADIO
 #include "r7.h"
-#include "net.h"
+#include "net7.h"
 #include "settings.h"
 #include "wxwarn.h"
 #include <cstdio>
@@ -18,7 +18,7 @@
 
 namespace r7 {
 
-static net::Warnings W_;                    // la ultima copia de lo que tiene la red
+static net7::Warnings W_;                    // la ultima copia de lo que tiene la red
 static uint32_t wSeq = 0xFFFFFFFF;
 static std::set<std::string> wShown;        // avisos cuya ventana ya salio (o se cerro)
 static std::vector<int> wQueue;             // indices de W_.list que esperan su ventana
@@ -101,9 +101,9 @@ void warnStep() {
     static uint32_t last = 0;
     if (nowMs() - last < 1000 && last) return;
     last = nowMs() | 1;
-    const uint32_t seq = net::warnings().seq;
+    const uint32_t seq = net7::warnings().seq;
     if (seq != wSeq) {
-        W_ = net::warnings();
+        W_ = net7::warnings();
         wSeq = W_.seq;
         popDrop();
         wQueue.clear();
@@ -148,9 +148,9 @@ static lv_obj_t* makeRow(lv_obj_t* p) {
     return r;
 }
 static void onRow(lv_event_t* e) { int i = clickIndex(e); if (i >= 0 && i < (int)W_.list.size()) { wQueue.clear(); popShow(i); } }
-static void onRefresh(lv_event_t*) { net::warnFetch(); notice("Asking for the warnings..."); }
+static void onRefresh(lv_event_t*) { net7::warnFetch(); notice("Asking for the warnings..."); }
 static void onSetup(lv_event_t*) { wSetupOpen = !wSetupOpen; requestRefresh(); }
-static void onSrc(lv_event_t* e) { cfg::get().warnSrc = (int)(intptr_t)lv_event_get_user_data(e); cfg::save(); net::warnFetch(); requestRefresh(); }
+static void onSrc(lv_event_t* e) { cfg::get().warnSrc = (int)(intptr_t)lv_event_get_user_data(e); cfg::save(); net7::warnFetch(); requestRefresh(); }
 static void onPop(lv_event_t* e) { cfg::get().warnPopup = (int)(intptr_t)lv_event_get_user_data(e); cfg::save(); requestRefresh(); }
 static void onSave(lv_event_t*) {
     cfg::Settings& st = cfg::get();
@@ -160,7 +160,7 @@ static void onSave(lv_event_t*) {
     if (!c.empty()) st.maCountry = c;
     st.maArea = lv_textarea_get_text(wArea);
     cfg::save();
-    net::warnFetch();
+    net7::warnFetch();
     notice("Saved");
     requestRefresh();
 }
@@ -200,7 +200,7 @@ static void buildWarn(lv_obj_t* root) {
 }
 static void refreshWarn() {
     const cfg::Settings& st = cfg::get();
-    W_ = net::warnings();
+    W_ = net7::warnings();
     setText(wStatus, W_.status.empty() ? (st.warnSrc ? "Waiting for the first download (needs WiFi)." : "Off: choose a source in SETUP.") : W_.status.c_str());
     show(wSetup, wSetupOpen || !st.warnSrc);
     for (int i = 0; i < 3; i++) chipSet(wSrcC[i], st.warnSrc == i);

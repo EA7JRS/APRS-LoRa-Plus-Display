@@ -6,7 +6,7 @@
  * trabajos de internet (tiempo de OpenWeatherMap, firmware del tracker). La interfaz habla con ellas por colas.
  */
 #ifdef UI_RADIO
-#include "net.h"
+#include "net7.h"
 #include "protocol.h"
 #include "rotor_proto.h"
 #include "settings.h"
@@ -29,7 +29,7 @@
 #include <mutex>
 #include <ctime>
 
-namespace net {
+namespace net7 {
 
 static std::mutex mx;
 static proto::Model* model = nullptr;
@@ -403,7 +403,7 @@ static void doFwInstall() {
 }
 
 // ------------------------------------------------------------------ avisos meteorologicos
-static net::Warnings warnState;
+static net7::Warnings warnState;
 static volatile bool warnReq = false;
 static uint32_t warnLast = 0;
 static bool warnFailed = false;
@@ -605,5 +605,5 @@ void loop() {
     if (wanted && online() && posOk && (wxLast == 0 || millis() - wxLast > (uint32_t)(s.wxMinutes < 10 ? 10 : s.wxMinutes) * 60000u)) { wxLast = millis(); wxReq = true; }
 }
 
-} // namespace net
+} // namespace net7
 #endif
