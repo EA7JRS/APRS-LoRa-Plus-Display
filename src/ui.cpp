@@ -12,6 +12,9 @@
 #include "board.h"
 #include "boat_link.h"
 #include "tsync.h"
+#include "astro.h"      // formulas del plotter: sol y luna
+#include "wind.h"       // Beaufort
+#include "wxcalc.h"     // punto de rocio, sensacion termica
 #include "tracker_link.h"
 #include "ui_assets.h"
 #include <lvgl.h>
@@ -883,15 +886,47 @@ static void fillBoat(uint32_t now) {
         double g = 0;
         char gs[24] = "";
         if (s.get(Key::Gust, now, g)) snprintf(gs, sizeof gs, ", gusts %.0f", g);
-        kvBoat.addf("True wind", colorOf(Key::Tws), "%.1f kn%s%s  %s", a, d, gs, src(Key::Tws));
+        kvBoat.addf("True wind", colorOf(Key::Tws), "%.1f kn F%d%s%s  %s", a, plotter::beaufort(a), d, gs, src(Key::Tws));
         any = true;
     }
     if (s.get(Key::Pressure, now, a)) { kvBoat.addf("Pressure", colorOf(Key::Pressure), "%.0f hPa  %s", a, src(Key::Pressure)); any = true; }
     if (s.get(Key::AirTemp, now, a)) {
-        char h[16] = "";
-        if (s.get(Key::Humidity, now, b2)) snprintf(h, sizeof h, ", %.0f %%", b2);
-        kvBoat.addf("Air", colorOf(Key::AirTemp), "%.1f \xC2\xB0" "C%s  %s", a, h, src(Key::AirTemp));
+        char h[48] = "";
+        if (s.get(Key::Humidity, now, b2)) {
+            const double dp = plotter::dewPointC(a, b2);
+            if (std::isnan(dp)) snprintf(h, sizeof h, ", %.0f %%", b2);
+            else snprintf(h, sizeof h, ", %.0f %%, dew %.1f \xC2\xB0" "C", b2, dp);
+        }
+        double tw = -1, rh = -1;
+        if (s.get(Key::Tws, now, tw)) tw *= 1.852;
+        s.get(Key::Humidity, now, rh);
+        const double fl = plotter::feelsLikeC(a, rh, tw);
+        char f[32] = "";
+        if (std::fabs(fl - a) >= 0.5) snprintf(f, sizeof f, ", feels %.0f \xC2\xB0" "C", fl);
+        kvBoat.addf("Air", colorOf(Key::AirTemp), "%.1f \xC2\xB0" "C%s%s  %s", a, h, f, src(Key::AirTemp));
         any = true;
+    }
+    if (s.get(Key::Lat, now, a) && s.get(Key::Lon, now, b2)) {     // sol y luna del dia en la posicion (UTC, como el reloj)
+        const time_t tt = (time_t)tsync::now();
+        if (tt > 1704067200) {
+            int y, mo, d; double hh;
+            plotter::unixToUtc((long long)tt, y, mo, d, hh);
+            auto hm = [](char* o, size_t n, double m) { int v = ((int)lround(m) % 1440 + 1440) % 1440; snprintf(o, n, "%02d:%02d", v / 60, v % 60); };
+            double r, st2, cr, cs, mr, ms;
+            bool hr, hs;
+            char r1[8], r2[8], c1[8] = "--", c2[8] = "--", m1[8] = "--:--", m2[8] = "--:--";
+            if (plotter::sunTimes(y, mo, d, a, b2, -0.833, r, st2)) {
+                hm(r1, sizeof r1, r); hm(r2, sizeof r2, st2);
+                if (plotter::sunTimes(y, mo, d, a, b2, -6, cr, cs)) { hm(c1, sizeof c1, cr); hm(c2, sizeof c2, cs); }
+                kvBoat.addf("Sun", P->fg, "%s-%s UTC, civil twilight %s-%s", r1, r2, c1, c2);
+            } else kvBoat.add("Sun", "no sunrise or sunset today");
+            const double age = plotter::moonAgeDays(y, mo, d, hh);
+            plotter::moonTimes(y, mo, d, a, b2, mr, hr, ms, hs);
+            if (hr) hm(m1, sizeof m1, mr);
+            if (hs) hm(m2, sizeof m2, ms);
+            kvBoat.addf("Moon", P->fg, "%s, %d %%, rises %s, sets %s UTC", plotter::moonPhaseNameEn(plotter::moonPhase8(age)),
+                        (int)lround(plotter::moonIllumination(age) * 100), m1, m2);
+        }
     }
     // AIS: cuantos y los mas cercanos (los peligrosos primero)
     plotter::AisTargets& t = boat::targets();
@@ -1232,7 +1267,11 @@ void update() {
             kvNet.addf("Source", P->fg, "%s%s%s, %u min ago", n.src.c_str(), n.place.empty() ? "" : " \xC2\xB7 ", n.place.c_str(), (unsigned)(n.age / 60));
             if (!n.desc.empty()) kvNet.add("Sky", n.desc.c_str());
             if (n.t > -900) kvNet.addf("Temperature", P->fg, "%.1f \xC2\xB0" "C", n.t);
-            if (n.h >= 0) kvNet.addf("Humidity", P->fg, "%.0f %%", n.h);
+            if (n.h >= 0) {
+                const double dp = n.t > -900 ? plotter::dewPointC(n.t, n.h) : NAN;
+                if (std::isnan(dp)) kvNet.addf("Humidity", P->fg, "%.0f %%", n.h);
+                else kvNet.addf("Humidity", P->fg, "%.0f %%, dew point %.1f \xC2\xB0" "C", n.h, dp);
+            }
             if (n.p > 0) {
                 if (n.d3 > -900) kvNet.addf("Pressure", P->fg, "%.1f hPa (sea level), %+.1f in 3 h", n.p, n.d3);
                 else kvNet.addf("Pressure", P->fg, "%.1f hPa (sea level)", n.p);
@@ -1242,7 +1281,8 @@ void update() {
                 char w[64];
                 int k = snprintf(w, sizeof w, "%.1f m/s", n.ws);
                 if (n.wg >= 0) k += snprintf(w + k, sizeof w - k, ", gusts %.1f", n.wg);
-                if (n.wd >= 0) snprintf(w + k, sizeof w - k, " from %d\xC2\xB0", n.wd);
+                if (n.wd >= 0) k += snprintf(w + k, sizeof w - k, " from %d\xC2\xB0", n.wd);
+                snprintf(w + k, sizeof w - k, ", force %d", plotter::beaufort(n.ws / 0.514444));
                 kvNet.add("Wind", w);
             }
             if (n.rain >= 0) kvNet.addf("Rain", P->fg, "%.1f mm/h", n.rain);

@@ -14,6 +14,9 @@
 #include "sk_link.h"
 #include "stream.h"
 #include "tsync.h"
+#include "astro.h"
+#include "geo.h"
+#include "wmm.h"
 
 using namespace plotter;
 
@@ -190,6 +193,16 @@ void loop(uint32_t now) {
         st_.get(Key::Sog, now, sog);
         st_.get(Key::Cog, now, cog);
         tgs.compute(own, Mover{{own ? la : 0.0, own ? lo : 0.0}, sog, cog}, now);
+        // Rumbo verdadero = magnetico + declinacion del WMM (formulas del plotter) si no llega uno verdadero
+        double hm, ht;
+        if (own && st_.get(Key::HeadingMag, now, hm) &&
+            (!st_.get(Key::Heading, now, ht) || st_.quality(Key::Heading) == plotter::Quality::Computed)) {
+            const time_t t = (time_t)tsync::now();
+            int y, mo, d; double h;
+            plotter::unixToUtc(t > 1767225600 ? (long long)t : 1798761600LL, y, mo, d, h);   // sin hora: 2027.0
+            const double dec = plotter::magneticDeclination(la, lo, plotter::decimalYear(y, mo, d, h));
+            st_.set(Key::Heading, plotter::norm360(hm + dec), st_.source(Key::HeadingMag, now), now, plotter::Quality::Computed);
+        }
     }
 }
 }

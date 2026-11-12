@@ -28,7 +28,7 @@ Copyright (C) 2026 Manuel - EA7JRS. GPL-3.0-or-later.
 | SAT / Rotor | Satélite en curso (azimut, elevación, distancia) y objetivo del rotor |
 | Mirror | Espejo de la pantalla del tracker (`screen`) |
 | DAPNET | Avisos recibidos por el tracker en modo DAPNET |
-| Network | Datos del barco de la red local (posición, velocidad, rumbo, sonda, viento, AIS con CPA) con su origen, estado de la WiFi y del servidor, y su configuración |
+| Network | Datos del barco de la red local (posición, velocidad, rumbo, sonda, viento con Beaufort, aire con rocío y sensación, sol y luna, AIS con CPA) con su origen, estado de la WiFi y del servidor, y su configuración |
 | Settings | PIN del tracker, dirección del tracker, olvidar emparejamiento, luz de fondo |
 
 ## Enlace con el tracker
@@ -53,6 +53,8 @@ Por **UDP** (por ejemplo, 10110) entra el NMEA que se difunde en la red, como el
 Cada dato se toma de la mejor fuente que esté al día: red (LAN), tracker por BLE (TRK, solo la posición, el rumbo y la velocidad de su GNSS) e internet (WEB). A los 10 s sin la fuente mejor entra la siguiente. Los blancos AIS de la red salen con distancia, demora y CPA (riesgo con CPA ≤ 0,5 mn y TCPA ≤ 20 min, en rojo).
 
 **Hora**: el reloj de la pantalla se pone con la del GNSS del tracker (evento `gnss`) o la del GPS que llegue por la red (RMC / ZDA) y, sin GPS, con NTP por la WiFi: `ntp.roa.es`, la hora oficial de España (Real Instituto y Observatorio de la Armada), con `hora.roa.es` y `pool.ntp.org` de reserva. Mientras la del GPS esté al día (6 h), NTP no la sustituye. Settings > Link > *Clock* enseña la hora UTC y de dónde sale.
+
+**Cálculos** (las fórmulas del plotter, las mismas en todos los equipos APRS LoRa+): fuerza **Beaufort** junto al viento real y al de internet, **punto de rocío** y **sensación térmica** junto a la temperatura, **sol** (salida, puesta y crepúsculo civil) y **luna** (fase, iluminada, salida y puesta) del día en la posición, en hora UTC, y rumbo verdadero con la **declinación** del Modelo Magnético Mundial (WMM2025) cuando solo llega un rumbo magnético (HDG / HDM).
 
 La configuración se guarda en la pantalla (WiFi, servidor, puertos, clave). El código común está en `lib/plotter_core` y `lib/aprs_links`, copiado del plotter con `tools/sync_links.sh` (se cambia allí, donde tiene sus pruebas, y se vuelve a copiar). El Bluetooth NMEA del plotter (pasarela XIAO, instrumento de viento) no está activado aquí todavía: la pantalla ya usa el Bluetooth para el tracker.
 
