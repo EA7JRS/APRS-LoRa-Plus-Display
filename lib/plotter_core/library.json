@@ -1,6 +1,6 @@
 {
     "name": "plotter_core",
-    "version": "5.4.3",
+    "version": "5.4.4",
     "description": "Núcleo de APRS LoRa+ (C++17 puro, sin Arduino): geodesia, NMEA 0183, AIS, NMEA 2000 (lectura y emisión), Signal K, tabla de datos con prioridad de fuentes, viento, rutas, fondeo, luces, mareas y más. Se prueba en el PC con tools/run_host_tests.sh.",
     "license": "GPL-3.0-or-later",
     "authors": [{ "name": "Manuel - EA7JRS" }],

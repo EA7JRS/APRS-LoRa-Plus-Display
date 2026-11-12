@@ -1,5 +1,8 @@
 # Changelog
 
+## 5.4.4 — 2026-11-12
+- Solo el número de versión (misma versión en todo el ecosistema; las novedades de la 5.4.4 son del tracker y la app).
+
 ## 5.4.3 — 2026-11-12
 _La 5.4.2 no llegó a publicarse: todo lo preparado para ella sale en la 5.4.3._
 
