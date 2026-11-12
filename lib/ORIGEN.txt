@@ -1,1 +1,1 @@
-Copiado de EA7JRS/APRS-LoRa-Plus-Plotter, commit 0ce9872, con tools/sync_links.sh. No editar aqui.
+Copiado de EA7JRS/APRS-LoRa-Plus-Plotter, commit b6898b0, con tools/sync_links.sh. No editar aqui.

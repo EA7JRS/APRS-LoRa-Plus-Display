@@ -260,4 +260,22 @@ int nmeaRmb(char* out, int size, double xteNm, const char* originId, const char*
     return (w > 0 && w < size) ? w : 0;
 }
 
+int nmeaVwr(char* out, int size, double awaDeg, double awsKn) {
+    char body[64];
+    const double a = norm180(awaDeg);
+    double kn = awsKn < 0 ? 0 : awsKn;
+    if (kn > 999.9) kn = 999.9;
+    int n = std::snprintf(body, sizeof(body), "IIVWR,%.1f,%c,%.1f,N,%.1f,M,%.1f,K", a < 0 ? -a : a, a < 0 ? 'L' : 'R', kn, kn * 1852.0 / 3600.0,
+                          kn * 1.852);
+    if (n <= 0 || n >= int(sizeof(body))) return 0;
+    int w = std::snprintf(out, size_t(size), "$%s*%02X\r\n", body, nmeaChecksum(body));
+    return (w > 0 && w < size) ? w : 0;
+}
+
+void pilotWaypointId(int number, char* out, int size) {
+    if (size <= 0) return;
+    if (number < 0) number = 0;
+    std::snprintf(out, size_t(size), "W%03d", number % 1000);
+}
+
 }  // namespace plotter

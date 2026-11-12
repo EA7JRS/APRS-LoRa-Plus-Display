@@ -42,6 +42,13 @@ int nmeaApb(char* out, int size, double xteNm, bool arrived, bool perpendicularP
 int nmeaRmb(char* out, int size, double xteNm, const char* originId, const char* destId, double destLat, double destLon,
             double rangeNm, double bearingTrue, double closingKn, bool arrived);
 
+// Trama VWR (viento aparente: angulo 0-180 a babor L o estribor R, nudos, m/s y km/h). Es la unica de viento que entienden los
+// pilotos de cana Raymarine ST1000+ / ST2000+ para el modo WindTrim (aceptan VWR, no MWV). awaDeg: -180..180, + = estribor.
+int nmeaVwr(char* out, int size, double awaDeg, double awsKn);
+// Nombre de waypoint para un piloto que solo lee los cuatro primeros caracteres (Raymarine ST1000+ / ST2000+): "W001", "W002"...
+// Con nombres mas largos el piloto no ve el cambio de waypoint (todos empiezan por "WPT ") y no avanza.
+void pilotWaypointId(int number, char* out, int size);
+
 enum class NmeaResult { Bad, Ignored, Data, Ais };
 
 class Nmea0183 {
