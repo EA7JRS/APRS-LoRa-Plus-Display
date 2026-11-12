@@ -1,6 +1,7 @@
 # Changelog
 
 ## Sin publicar
+- **Avisos oficiales** (todas las placas, pestaña Sensors: *Official alerts* y *Space weather*, y ventana emergente con el color del nivel): los del tracker (eventos `alertsv` / `alerts` / `spacewx`: los descarga la app con su internet, con los polígonos de AEMET, y el SAME de la T-TWR) y los de la WiFi propia (`lib/aprs_links/alerts_net`: AEMET por su RSS, MeteoAlarm, NWS, tsunami.gov, USGS / EMSC, SWPC). Network: *Alert zones* y *Country (ISO)*; sin zonas, los de AEMET / MeteoAlarm de la WiFi solo abren la ventana en rojo.
 - Registro de arranque con la línea común del ecosistema: «[INFO][Main] APRS LoRa+ (c) 2026 Manuel - EA7JRS».
 
 ## 5.4.4 — 2026-11-12

@@ -100,6 +100,32 @@ bool applyEvent(Model& m, const char* text) {
             Page p; p.ric = o["ric"] | 0u; p.own = o["own"] | false; p.rssi = o["rssi"] | 0; p.text = S(o["t"]);
             m.pages.push_back(p);
         }
+    } else if (!strcmp(e, "alertsv")) {
+        m.alertsVerTracker = d["v"] | 0u;
+        if ((d["n"] | 0) == 0) { m.alerts.clear(); m.alertsTot = 0; m.alertsVer = m.alertsVerTracker; }
+    } else if (!strcmp(e, "alerts")) {
+        const int from = d["from"] | 0;
+        m.alertsTot = d["tot"] | 0;
+        if (from == 0) m.alerts.clear();
+        for (JsonObjectConst o : d["items"].as<JsonArrayConst>()) {
+            plotter::Alert a;
+            a.id = S(o["id"]); a.src = plotter::alertSrcFromCode(S(o["s"])); a.level = (uint8_t)(o["lv"] | 0);
+            a.event = S(o["ev"]); a.area = S(o["ar"]); a.text = S(o["tx"]);
+            a.onset = a.sent = o["on"] | (int64_t)0; a.expires = o["ex"] | (int64_t)0;
+            if (o["la"].is<double>() && o["lo"].is<double>()) { a.lat = o["la"] | 0.0; a.lon = o["lo"] | 0.0; }
+            if (!a.id.empty()) m.alerts.push_back(a);
+        }
+        m.alertsPending = (int)m.alerts.size() < m.alertsTot && !d["items"].as<JsonArrayConst>().isNull() && d["items"].size() > 0;
+        if (!m.alertsPending) m.alertsVer = d["v"] | m.alertsVerTracker;
+    } else if (!strcmp(e, "spacewx")) {
+        plotter::SpaceWx& w = m.space;
+        w = plotter::SpaceWx();
+        w.g = d["g"] | -1; w.r = d["r"] | -1; w.s = d["s"] | -1; w.gMax = d["gm"] | -1;
+        for (JsonVariantConst k : d["kp"].as<JsonArrayConst>()) if (w.kpCount < 8) w.kp[w.kpCount++] = k | 0.0f;
+        w.kpTime = d["kt"] | (int64_t)0;
+        w.sfi = d["sfi"] | -1.0f; w.bz = d["bz"] | 1000.0f; w.bt = d["bt"] | -1.0f; w.windKms = d["ws"] | -1.0f;
+        w.xray = S(d["xr"]);
+        m.spaceOk = (d["ok"] | false) && w.valid();
     } else if (!strcmp(e, "err")) {
         m.lastError = S(d["c"]) + ": " + S(d["msg"]);
     } else if (!strcmp(e, "ok")) {
@@ -123,6 +149,7 @@ std::string cmdProfile(int i) { JsonDocument d; d["c"] = "profile"; d["i"] = i; 
 std::string cmdLora(int i) { JsonDocument d; d["c"] = "lora"; d["i"] = i; return line(d); }
 std::string cmdScreen(int every) { JsonDocument d; d["c"] = "screen"; d["every"] = every; return line(d); }
 std::string cmdSatSel(int i) { JsonDocument d; d["c"] = "satsel"; d["i"] = i; return line(d); }
+std::string cmdAlerts(int from, int cnt) { JsonDocument d; d["c"] = "alerts"; d["from"] = from; d["cnt"] = cnt; return line(d); }
 std::string cmdAct(const std::string& name) { JsonDocument d; d["c"] = "act"; d["a"] = name; return line(d); }
 
 } // namespace proto

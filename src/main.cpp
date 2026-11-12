@@ -12,6 +12,7 @@
 #include <lvgl.h>
 #include "board.h"
 #include "boat_link.h"
+#include "alerts_net.h"
 #include "protocol.h"
 #include "tracker_link.h"
 #include "ui.h"
@@ -105,6 +106,8 @@ static void scheduler() {
         trk::send(proto::cmdSub(5, 2));                // sensores cada 5 s y GNSS cada 2 s
         trk::send(proto::cmdHeard(0, 12));
         trk::send(proto::cmdMsgs(0, 10));
+        trk::send(proto::cmdAlerts(0, 12));            // avisos oficiales y tiempo espacial (firmware con caps.alerts)
+        trk::send(proto::cmdSimple("spacewx"));
         tStatus = tHeard = tMsgs = now;
     }
     if (s != trk::State::Linked && last == trk::State::Linked) { model.revision++; }
@@ -113,6 +116,13 @@ static void scheduler() {
     if (now - tStatus > 10000) { tStatus = now; trk::send(proto::cmdSimple("status")); }
     if (now - tHeard > (ui::heardVisible() ? 5000u : 20000u)) { tHeard = now; trk::send(proto::cmdHeard(0, 12)); }
     if (now - tMsgs > (ui::messagesVisible() ? 8000u : 30000u)) { tMsgs = now; trk::send(proto::cmdMsgs(0, 10)); }
+    // la lista de avisos del tracker cambio (evento alertsv) o faltan paginas: se pide
+    static uint32_t tAlerts = 0, tSpace = 0;
+    if ((model.alertsVerTracker != model.alertsVer || model.alertsPending) && now - tAlerts > 2000) {
+        tAlerts = now;
+        trk::send(proto::cmdAlerts(model.alertsPending ? (int)model.alerts.size() : 0, 12));
+    }
+    if (now - tSpace > 15 * 60000u) { tSpace = now; trk::send(proto::cmdSimple("spacewx")); }
 }
 
 // Instalador web: por USB contesta a "APRS-INFO?" como el resto de dispositivos APRS LoRa+.
@@ -152,6 +162,11 @@ void loop() {
         if (!model.gnss.utc.empty()) boat::trackerTime(model.gnss.utc.c_str());
     }
     boat::loop(millis());
+    {                                                   // avisos oficiales de la WiFi propia (tarea aparte)
+        std::vector<plotter::Alert> v;
+        plotter::SpaceWx sw;
+        if (alertsnet::take(v, sw)) ui::setNetAlerts(v, sw);
+    }
     static uint32_t t = 0;
     if (millis() - t > 300) { t = millis(); ui::update(); }
     lv_timer_handler();

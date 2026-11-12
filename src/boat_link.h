@@ -12,6 +12,7 @@
 
 #include "aistargets.h"
 #include "net.h"
+#include "alerts_net.h"
 #include "store.h"
 
 namespace boat {
@@ -35,6 +36,9 @@ void trackerFix(double lat, double lon, double sogKn, double cogDeg, uint32_t no
 // Hora del GNSS del tracker ("2026-11-12T06:00:00Z" del evento gnss): pone el reloj (lib/aprs_links/tsync). Sin GPS, la
 // hora sale de NTP (ntp.roa.es, hora oficial de Espana) cuando hay WiFi.
 void trackerTime(const char* isoUtc);
+// Avisos oficiales por la WiFi (lib/aprs_links/alerts_net): zonas (palabras separadas por comas) y pais ISO (vacio = por la posicion)
+const alertsnet::Config& alerts();
+void setAlerts(const char* zones, const char* country);
 
 plotter::DataStore& store();
 plotter::AisTargets& targets();

@@ -58,6 +58,14 @@ int main() {
     const char* a = "{\"e\":\"ok\"}\n{\"e\":\"st"; const char* b = "atus\"}\r\n\n{\"e\":";
     lb.feed((const uint8_t*)a, strlen(a), f); lb.feed((const uint8_t*)b, strlen(b), f);
     CHECK(out.size() == 2 && out[0] == "{\"e\":\"ok\"}" && out[1] == "{\"e\":\"status\"}");
+    // Avisos oficiales del tracker
+    CHECK(proto::applyEvent(m, R"J({"e":"alertsv","v":7,"n":2,"max":2})J") && m.alertsVerTracker == 7 && m.alertsVer != 7);
+    CHECK(proto::applyEvent(m, R"J({"e":"alerts","tot":2,"from":0,"v":7,"items":[{"id":"x1","s":"aemet","lv":2,"ev":"Coastal events","ar":"Litoral de Huelva","tx":"olas 4 m","on":1794500000,"ex":1794550000},{"id":"usgs/a","s":"usgs","lv":1,"ev":"M5.4 Earthquake","ar":"S Cabo San Vicente","tx":"Depth 12 km","on":1,"ex":2,"la":36.1,"lo":-9.2}]})J"));
+    CHECK(m.alerts.size() == 2 && m.alertsVer == 7 && !m.alertsPending && m.alerts[0].src == plotter::AlertSrc::Aemet && m.alerts[0].level == 2 && m.alerts[1].hasPos());
+    CHECK(proto::applyEvent(m, R"J({"e":"spacewx","ok":true,"g":3,"r":1,"s":0,"gm":2,"kp":[2.33,5,7],"kt":1794500000,"sfi":182,"bz":-12,"xr":"M2.4","age":30})J"));
+    CHECK(m.spaceOk && m.space.g == 3 && m.space.kpCount == 3 && m.space.kpNow() == 7 && m.space.xray == "M2.4" && m.space.sfi == 182);
+    CHECK(proto::applyEvent(m, R"J({"e":"alertsv","v":8,"n":0,"max":-1})J") && m.alerts.empty() && m.alertsVer == 8);
+    CHECK(proto::cmdAlerts(0, 12) == "{\"c\":\"alerts\",\"from\":0,\"cnt\":12}\n");
     printf("%d comprobaciones, %d fallos\n", total, fails);
     return fails ? 1 : 0;
 }

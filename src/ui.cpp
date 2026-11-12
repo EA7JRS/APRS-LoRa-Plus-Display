@@ -27,6 +27,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+#include <algorithm>
 
 LV_FONT_DECLARE(dejavu_12)
 LV_FONT_DECLARE(dejavu_14)
@@ -122,7 +123,7 @@ static lv_obj_t* tblPages;
 // ajustes
 static lv_obj_t *taPin, *taPeer, *lblPinRes, *lblBack;
 // red local (pestana Network)
-static lv_obj_t *taSsid, *taPass, *taHost, *taPort, *taUdp, *taOwm, *btnKind, *lblNetRes;
+static lv_obj_t *taSsid, *taPass, *taHost, *taPort, *taUdp, *taOwm, *btnKind, *lblNetRes, *taZones, *taCountry;
 static int netKind = 0;
 static int backlight = 100;
 
@@ -310,7 +311,7 @@ struct Kv {
     }
     void end() { for (size_t i = n; i < rows.size(); i++) lv_obj_set_hidden(rows[i], true); }
 };
-static Kv kvDash, kvSens, kvNet, kvSet, kvBoat, kvLan;
+static Kv kvDash, kvSens, kvNet, kvSet, kvBoat, kvLan, kvAlerts, kvSpace;
 
 // ---------- columnas de las tablas: cuales salen y su peso en el ancho, segun la pantalla ----------
 struct Col { int id; float weight; const char* title; };
@@ -578,9 +579,14 @@ static void buildSens() {
     page(tabSens, LV_FLEX_FLOW_ROW_WRAP);
     kvSens.create(tabSens, "Tracker sensors");
     kvNet.create(tabSens, "Internet weather");
+    kvAlerts.create(tabSens, "Official alerts");
+    kvSpace.create(tabSens, "Space weather");
     if (L.sz == Size::L) {
         lv_obj_set_width(kvSens.box, LV_PCT(48));
         lv_obj_set_width(kvNet.box, LV_PCT(49));
+        lv_obj_set_width(kvAlerts.box, LV_PCT(48));
+        lv_obj_set_width(kvSpace.box, LV_PCT(49));
+        kvAlerts.kw = 120;
     }
 }
 
@@ -791,6 +797,7 @@ static void onNetSave(lv_event_t*) {
     snprintf(c.pass, sizeof c.pass, "%s", lv_textarea_get_text(taPass));
     snprintf(c.host, sizeof c.host, "%s", lv_textarea_get_text(taHost));
     snprintf(c.owmKey, sizeof c.owmKey, "%s", lv_textarea_get_text(taOwm));
+    boat::setAlerts(lv_textarea_get_text(taZones), lv_textarea_get_text(taCountry));
     c.tcpKind = netKind;
     const int port = atoi(lv_textarea_get_text(taPort)), udp = atoi(lv_textarea_get_text(taUdp));
     c.tcpPort = port > 0 && port < 65536 ? port : boat::defaultPort(netKind);
@@ -805,6 +812,138 @@ static lv_obj_t* labeledField(lv_obj_t* parent, const char* key, const char* hin
     lv_obj_set_style_pad_gap(b, 2, 0);
     lv_obj_add_style(label(b, key), &stKey, 0);
     return field(b, hint, w, maxLen, accepted);
+}
+
+// ---------- Avisos oficiales: los del tracker (la app los baja con su internet; SAME de la T-TWR) y los de la WiFi propia ----------
+static std::vector<plotter::Alert> netAlerts;
+static plotter::SpaceWx netSpace;
+static std::vector<std::string> alertSeen;                      // "id#nivel" ya mostrados en ventana
+static lv_obj_t *alWin = nullptr, *alHead, *alTitle, *alSrc, *alEvent, *alBody;
+static std::string alWinId;
+
+static uint32_t levelColor(uint8_t lv) { return lv >= 3 ? P->red : lv == 2 ? 0xFF9A3C : lv == 1 ? 0xFFD84D : P->mut; }
+
+static void allAlerts(std::vector<const plotter::Alert*>& out) {
+    out.clear();
+    for (const auto& a : M->alerts) out.push_back(&a);
+    for (const auto& a : netAlerts) {
+        bool dup = false;
+        for (const auto* b : out) if (b->id == a.id || (b->src == a.src && b->event == a.event && b->area == a.area && b->onset == a.onset)) dup = true;
+        if (!dup) out.push_back(&a);
+    }
+    std::stable_sort(out.begin(), out.end(), [](const plotter::Alert* a, const plotter::Alert* b) { return a->level > b->level; });
+}
+
+static void onAlertClose(lv_event_t*) {
+    lv_obj_set_hidden(alWin, true);
+    alWinId.clear();
+}
+
+static void buildAlertWin() {
+    alWin = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(alWin);
+    lv_obj_set_size(alWin, board::W, board::H);
+    lv_obj_set_style_bg_color(alWin, lv_color_hex(0x06090D), 0);
+    lv_obj_set_style_bg_opa(alWin, 190, 0);
+    lv_obj_add_flag(alWin, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t* w = lv_obj_create(alWin);
+    lv_obj_remove_style_all(w);
+    lv_obj_add_style(w, &stCard, 0);
+    lv_obj_set_size(w, board::W * 9 / 10, LV_SIZE_CONTENT);
+    lv_obj_center(w);
+    lv_obj_set_flex_flow(w, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(w, 0, 0);
+    lv_obj_set_style_pad_gap(w, L.pad / 2, 0);
+    lv_obj_set_style_clip_corner(w, true, 0);
+    alHead = plain(w);
+    lv_obj_set_style_bg_opa(alHead, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_all(alHead, L.pad, 0);
+    lv_obj_set_flex_flow(alHead, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(alHead, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    alTitle = label(alHead, "", L.fSub);
+    alSrc = label(alHead, "", L.fBase);
+    lv_obj_t* body = plain(w);
+    lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_hor(body, L.pad, 0);
+    lv_obj_set_style_pad_bottom(body, L.pad, 0);
+    lv_obj_set_style_pad_gap(body, L.pad / 2, 0);
+    alEvent = label(body, "", L.fSub);
+    alBody = wrapLabel(body, "");
+    button(body, "CLOSE", onAlertClose, nullptr, 0, true);
+    lv_obj_set_hidden(alWin, true);
+}
+
+// Una ventana por aviso nuevo (o que sube de nivel), desde amarillo; sin zonas, los de AEMET / MeteoAlarm solo en rojo
+static void checkAlertWin() {
+    if (!alWin) buildAlertWin();
+    if (!lv_obj_is_hidden(alWin)) return;
+    std::vector<const plotter::Alert*> all;
+    allAlerts(all);
+    for (const auto* a : all) {
+        if (a->level < 1) continue;
+        // los de la WiFi propia de AEMET / MeteoAlarm no traen poligono: sin zonas, todo el pais, y solo salta la ventana de los rojos
+        const bool fromNet = a >= netAlerts.data() && a < netAlerts.data() + netAlerts.size();
+        const bool noGeo = fromNet && (a->src == plotter::AlertSrc::MeteoAlarm || a->src == plotter::AlertSrc::Aemet);
+        if (noGeo && !boat::alerts().zones[0] && a->level < 3) continue;
+        const std::string key = a->id + "#" + std::to_string((int)a->level);
+        if (std::find(alertSeen.begin(), alertSeen.end(), key) != alertSeen.end()) continue;
+        alertSeen.push_back(key);
+        if (alertSeen.size() > 80) alertSeen.erase(alertSeen.begin(), alertSeen.begin() + 20);
+        const bool quake = a->src == plotter::AlertSrc::Usgs || a->src == plotter::AlertSrc::Emsc;
+        const char* t = quake ? "EARTHQUAKE" : a->src == plotter::AlertSrc::Tsunami ? "TSUNAMI" : a->src == plotter::AlertSrc::Swpc ? "SPACE WEATHER"
+                      : a->src == plotter::AlertSrc::Same ? "NOAA WEATHER RADIO" : a->level >= 3 ? "RED WARNING" : a->level == 2 ? "ORANGE WARNING" : "YELLOW WARNING";
+        lv_obj_set_style_bg_color(alHead, C(levelColor(a->level)), 0);
+        setText(alTitle, t);
+        setColor(alTitle, 0x131A22);
+        setText(alSrc, plotter::alertSrcName(a->src));
+        setColor(alSrc, 0x131A22);
+        setText(alEvent, a->event.c_str());
+        char b[300];
+        snprintf(b, sizeof b, "%s\n%s", a->area.c_str(), a->text.c_str());
+        setText(alBody, b);
+        lv_obj_set_hidden(alWin, false);
+        alWinId = a->id;
+        return;
+    }
+}
+
+static void fillAlerts() {
+    std::vector<const plotter::Alert*> all;
+    allAlerts(all);
+    kvAlerts.begin();
+    if (all.empty()) kvAlerts.add("-", M->info.ok || alertsnet::status().lastMs ? "No alerts in force" : "From the tracker (phone app) or the Wi-Fi", P->mut);
+    for (size_t i = 0; i < all.size() && i < 10; i++) {
+        char v[200];
+        snprintf(v, sizeof v, "%s \xC2\xB7 %s", all[i]->event.c_str(), all[i]->area.c_str());
+        kvAlerts.add(plotter::alertLevelName(all[i]->level), v, levelColor(all[i]->level));
+    }
+    if (alertsnet::status().msg[0]) kvAlerts.add("Wi-Fi", alertsnet::status().msg, P->mut);
+    kvAlerts.end();
+    const plotter::SpaceWx& w = M->spaceOk ? M->space : netSpace;
+    kvSpace.begin();
+    if (!w.valid()) kvSpace.add("-", "No data", P->mut);
+    else {
+        auto sc = [](int v) -> uint32_t { return v >= 4 ? P->red : v == 3 ? 0xFF9A3C : v >= 1 ? 0xFFD84D : P->green; };
+        kvSpace.addf("Geomagnetic", sc(w.g), "G%d", w.g < 0 ? 0 : w.g);
+        kvSpace.addf("Radio", sc(w.r), "R%d", w.r < 0 ? 0 : w.r);
+        kvSpace.addf("Radiation", sc(w.s), "S%d", w.s < 0 ? 0 : w.s);
+        if (w.kpCount) {
+            char k[64]; int n = 0;
+            for (int i = 0; i < w.kpCount; i++) n += snprintf(k + n, sizeof k - n, "%s%.1f", i ? " " : "", w.kp[i]);
+            kvSpace.addf("Kp 24 h", sc(plotter::kpToG(w.kpNow())), "%s", k);
+        }
+        if (w.sfi > 0) kvSpace.addf("Solar flux", P->fg, "%.0f sfu", w.sfi);
+        if (!w.xray.empty()) kvSpace.add("X-ray", w.xray.c_str());
+        if (w.bz < 999) kvSpace.addf("Bz / Bt", P->fg, "%+.0f / %.0f nT", w.bz, w.bt);
+        if (w.windKms > 0) kvSpace.addf("Solar wind", P->fg, "%.0f km/s", w.windKms);
+    }
+    kvSpace.end();
+}
+
+void setNetAlerts(std::vector<plotter::Alert>& v, const plotter::SpaceWx& sw) {
+    netAlerts.swap(v);
+    if (sw.valid()) netSpace = sw;
+    if (M) M->revision++;
 }
 
 static void buildNet() {
@@ -848,6 +987,11 @@ static void buildNet() {
     lv_textarea_set_text(taUdp, b);
     taOwm = labeledField(r3, "OpenWeatherMap key (optional)", "key", wBig, 39);
     lv_textarea_set_text(taOwm, cf.owmKey);
+    lv_obj_t* r3b = row(c);
+    taZones = labeledField(r3b, "Alert zones (empty = all)", "Huelva, Cadiz", wBig, 63);
+    lv_textarea_set_text(taZones, boat::alerts().zones);
+    taCountry = labeledField(r3b, "Country (ISO)", "auto", wNum, 2, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz");
+    lv_textarea_set_text(taCountry, boat::alerts().country);
     lv_obj_t* r4 = row(c);
     button(r4, L.sz == Size::S ? "Save" : "Save and connect", onNetSave, nullptr, L.sz == Size::L ? 260 : 0, true);
     lblNetRes = label(r4, "");
@@ -1165,7 +1309,7 @@ void update() {
     // red local: una vez por segundo (no depende del tracker)
     static uint32_t tNet = 0;
     const uint32_t nowMs = lv_tick_get();
-    if (nowMs - tNet >= 1000 || !tNet) { tNet = nowMs ? nowMs : 1; fillBoat(nowMs); fillLan(nowMs); }
+    if (nowMs - tNet >= 1000 || !tNet) { tNet = nowMs ? nowMs : 1; fillBoat(nowMs); fillLan(nowMs); fillAlerts(); checkAlertWin(); }
 
     if (M->revision == drawnRev) return;
     drawnRev = M->revision;

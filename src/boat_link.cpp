@@ -26,6 +26,7 @@ static DataStore st_;
 static AisTargets tgs;
 static Stats st;
 static net::Config cfg;
+static alertsnet::Config acfg;                                     // avisos oficiales (alerts_net)
 static Nmea0183 tcpNmea, udpNmea;
 static LineBuffer tcpLine, udpLine;
 
@@ -67,7 +68,28 @@ static void load() {
     cfg.tcpPort = p.getInt("tcpPort", 10110);
     cfg.udpPort = p.getInt("udpPort", 0);
     snprintf(cfg.owmKey, sizeof cfg.owmKey, "%s", p.getString("owmKey", "").c_str());
+    snprintf(acfg.zones, sizeof acfg.zones, "%s", p.getString("azones", "").c_str());
+    snprintf(acfg.country, sizeof acfg.country, "%s", p.getString("acountry", "").c_str());
     p.end();
+}
+
+static void applyAlerts() {
+    acfg.on = cfg.ssid[0] != 0;                                    // con la WiFi configurada (necesita salida a internet)
+    alertsnet::apply(acfg);
+}
+
+const alertsnet::Config& alerts() { return acfg; }
+
+void setAlerts(const char* zones, const char* country) {
+    snprintf(acfg.zones, sizeof acfg.zones, "%s", zones ? zones : "");
+    snprintf(acfg.country, sizeof acfg.country, "%s", country ? country : "");
+    for (char* c = acfg.country; *c; c++) *c = (char)toupper((unsigned char)*c);
+    Preferences p;
+    p.begin("display", false);
+    p.putString("azones", acfg.zones);
+    p.putString("acountry", acfg.country);
+    p.end();
+    applyAlerts();
 }
 
 void setConfig(const net::Config& c) {
@@ -83,6 +105,7 @@ void setConfig(const net::Config& c) {
     p.putString("owmKey", cfg.owmKey);
     p.end();
     net::apply(cfg);
+    applyAlerts();
     Serial.printf("[boat] red: WiFi \"%s\", servidor %s %s:%d, UDP %d\n", cfg.ssid, kindName(cfg.tcpKind), cfg.host[0] ? cfg.host : "(puerta de enlace)",
                   cfg.tcpPort, cfg.udpPort);
 }
@@ -91,6 +114,7 @@ void begin() {
     load();
     net::begin();
     net::apply(cfg);
+    applyAlerts();
 }
 
 void trackerTime(const char* isoUtc) {
@@ -100,6 +124,7 @@ void trackerTime(const char* isoUtc) {
 
 void trackerFix(double lat, double lon, double sogKn, double cogDeg, uint32_t now) {
     st_.set(Key::Lat, lat, Source::Ble, now);
+    alertsnet::setPosition(lat, lon);                             // avisos oficiales en la posicion del tracker
     st_.set(Key::Lon, lon, Source::Ble, now);
     st_.set(Key::Sog, sogKn, Source::Ble, now);
     if (sogKn > 0.5) st_.set(Key::Cog, cogDeg, Source::Ble, now);   // parado, el rumbo del GNSS no vale
