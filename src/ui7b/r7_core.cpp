@@ -1018,34 +1018,41 @@ void openSideMenu() {
     wrap(p, "The display restarts to apply it.", &app_text_18, P->muted);
 }
 
-// ------------------------------------------------------------------ alerta de emergencia (AlertOverlay de la app)
-static lv_obj_t* alert = nullptr;
+// ------------------------------------------------------------------ alerta de emergencia
+// La ventana del plotter (y de AlertOverlay de la app): franja de color con el tipo de alerta y de donde viene (roja las
+// emergencias, ambar el riesgo de abordaje), quien es, sus datos en filas y los botones. Sale sobre cualquier pantalla.
+static lv_obj_t *alert = nullptr, *aHead, *aTitle, *aSub, *aName, *aBody;
 static int alertEq = -1;
 static int alertClosedEq = -2;
 static bool alertEai = false;
-// Como la app y el plotter: cerrada una alerta, esa misma estacion no la vuelve a abrir en 10 min aunque siga emitiendo.
+// Cerrada una alerta, esa misma estacion no la vuelve a abrir en 10 min aunque siga emitiendo.
 static std::string alertClosedCall;
 static uint32_t alertClosedAt = 0;
 static void alertForget() { alertClosedEq = M->leds.eq; alertClosedCall = M->leds.ec; alertClosedAt = nowMs(); }
-static void alertClose(lv_event_t*) { if (alert) { lv_obj_delete(alert); alert = nullptr; } alertForget(); }
-static void alertMap(lv_event_t*) {
-    std::string c = M->leds.ec;
-    if (alert) { lv_obj_delete(alert); alert = nullptr; }
-    alertForget();
-    for (const proto::Heard& h : M->heard) if (h.call == c && h.hasPos) { mapCenterOn(h.lat, h.lon); go(MAP); return; }
-    go(STATION, c);
-}
+static void alertDrop() { if (alert) { lv_obj_delete(alert); alert = nullptr; } }
+static void alertClose(lv_event_t*) { alertDrop(); alertForget(); }
 static void alertSilence(lv_event_t*) { trk::send(proto::Cmd("alarm").text("s", "off").str()); }
 static void alertStop(lv_event_t*) { trk::send(proto::Cmd("eai").text("s", "stop").str()); }
 static void alertOk(lv_event_t*) { trk::send(proto::Cmd("eai").text("s", "ok").str()); }
+static bool alertIsAis() { return M->leds.ek.rfind("ais", 0) == 0; }
 static void alertStation(lv_event_t*) {
     std::string c = M->leds.ec;
-    if (alert) { lv_obj_delete(alert); alert = nullptr; }
+    const bool ais = alertIsAis();
+    alertDrop();
     alertForget();
-    go(STATION, c);
+    if (ais) go(AIS); else go(STATION, c);
+}
+static void alertMap(lv_event_t*) {
+    std::string c = M->leds.ec;
+    const bool ais = alertIsAis();
+    alertDrop();
+    alertForget();
+    for (const proto::Heard& h : M->heard) if (h.call == c && h.hasPos) { mapCenterOn(h.lat, h.lon); go(MAP); return; }
+    for (const proto::Vessel& v : M->ais) if ((v.name == c || std::to_string(v.mmsi) == c) && v.hasPos) { mapCenterOn(v.lat, v.lon); go(MAP); return; }
+    if (ais) go(AIS); else go(STATION, c);
 }
 static void buildAlert(bool eai) {
-    if (alert) lv_obj_delete(alert);
+    alertDrop();
     alertEai = eai;
     alert = lv_obj_create(lv_layer_top());
     baseObj(alert);
@@ -1053,61 +1060,96 @@ static void buildAlert(bool eai) {
     lv_obj_set_style_bg_color(alert, C(P->scrim), 0);
     lv_obj_set_style_bg_opa(alert, LV_OPA_80, 0);
     lv_obj_set_clickable(alert, true);
-    lv_obj_t* p = panel(alert, 24, P->panel, P->red);
-    lv_obj_set_style_border_width(p, 3, 0);
-    lv_obj_set_width(p, 640);
+    lv_obj_t* p = panel(alert, 0, P->panel, P->panel);
+    lv_obj_set_width(p, 680);
     lv_obj_center(p);
-    lv_obj_set_style_pad_row(p, 12, 0);
-    text(p, "", &app_bold_34, P->red);
-    text(p, "", &app_bold_26, P->text);
-    wrap(p, "", &app_text_20, P->subText);
-    lv_obj_t* r = row(p, 10);
-    lv_obj_set_flex_align(r, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(p, 0, 0);
+    lv_obj_set_style_radius(p, 18, 0);
+    lv_obj_set_style_clip_corner(p, true, 0);
+    aHead = col(p, 2);
+    lv_obj_set_width(aHead, LV_PCT(100));
+    lv_obj_set_style_bg_opa(aHead, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_hor(aHead, 22, 0);
+    lv_obj_set_style_pad_ver(aHead, 12, 0);
+    aTitle = text(aHead, "", &app_bold_34, P->bg);
+    lv_obj_set_style_text_letter_space(aTitle, 1, 0);
+    aSub = text(aHead, "", &app_text_18, P->bg);
+    lv_obj_t* body = col(p, 8);
+    lv_obj_set_width(body, LV_PCT(100));
+    lv_obj_set_style_pad_hor(body, 22, 0);
+    lv_obj_set_style_pad_top(body, 14, 0);
+    lv_obj_set_style_pad_bottom(body, 18, 0);
+    aName = text(body, "", &app_bold_26, P->text);
+    aBody = wrap(body, "", &app_text_20, P->subText);
+    lv_obj_t* r = row(body, 10);
+    lv_obj_set_style_margin_top(r, 8, 0);
     if (eai) {
-        button(r, "I'M OK", alertOk, nullptr, 150, 60, P->green);
-        button(r, "STOP EAI", alertStop, nullptr, 170, 60, P->amber);
+        lv_obj_t* k = button(r, "I'M OK", alertOk, nullptr, 0, 64, P->green); lv_obj_set_flex_grow(k, 1);
+        k = button(r, "STOP EAI", alertStop, nullptr, 0, 64, P->amber); lv_obj_set_flex_grow(k, 1);
     } else {
-        button(r, "MAP", alertMap, nullptr, 110, 60, P->cyan);
-        button(r, "STATION", alertStation, nullptr, 140, 60, P->cyan);
-        button(r, "SILENCE", alertSilence, nullptr, 140, 60, P->amber);
+        lv_obj_t* k = button(r, "SILENCE ALARM", alertSilence, nullptr, 0, 64, P->amber); lv_obj_set_flex_grow(k, 2);
+        k = button(r, "MAP", alertMap, nullptr, 0, 64, P->cyan); lv_obj_set_flex_grow(k, 1);
+        k = button(r, alertIsAis() ? "VESSEL" : "STATION", alertStation, nullptr, 0, 64, P->cyan); lv_obj_set_flex_grow(k, 1);
     }
-    button(r, "CLOSE", alertClose, nullptr, 120, 60);
+    lv_obj_t* k = button(r, "CLOSE", alertClose, nullptr, 0, 64);
+    lv_obj_set_flex_grow(k, 1);
+}
+static void alertHead(const char* title, const char* sub, uint32_t color) {
+    lv_obj_set_style_bg_color(aHead, C(color), 0);
+    setText(aTitle, title);
+    setText(aSub, sub);
 }
 static void refreshAlert() {
     const proto::Leds& l = M->leds;
     const proto::Eai& a = M->eai;
     const bool eaiOn = a.ok && (a.sos > 0 || a.fm || a.md);
+    char b[160];
     if (eaiOn) {
         if (!alert || !alertEai) buildAlert(true);
-        lv_obj_t* p = lv_obj_get_child(alert, 0);
-        setText(lv_obj_get_child(p, 0), a.md ? "MAN DOWN" : "EMERGENCY (EAI)");
-        char b[96];
+        alertHead(a.md ? "MAN DOWN" : "EMERGENCY (EAI)", a.md ? "This tracker \xC2\xB7 no movement detected" : "This tracker \xC2\xB7 own emergency beacon", P->red);
         if (a.sos > 0) snprintf(b, sizeof b, "SOS beacon %s \xC2\xB7 %d sent", a.sos == 1 ? "countdown" : "on air", a.sent);
         else if (a.fm) snprintf(b, sizeof b, "Voice EAI \xC2\xB7 %d s left", a.fmLeft);
-        else snprintf(b, sizeof b, "No movement: EAI in %d s", a.mdLeft);
-        setText(lv_obj_get_child(p, 1), b);
-        setText(lv_obj_get_child(p, 2), a.by.empty() ? "Touch I'M OK if you are fine, or STOP EAI to end it." : ("Started by " + a.by).c_str());
+        else snprintf(b, sizeof b, "EAI starts in %d s", a.mdLeft);
+        setText(aName, b);
+        setText(aBody, a.by.empty() ? "Touch I'M OK if you are fine, or STOP EAI to end it." : ("Started by " + a.by).c_str());
         return;
     }
-    if (alert && alertEai) { lv_obj_delete(alert); alert = nullptr; }
-    if (alert && !alertEai && !(l.ok && l.emg)) { lv_obj_delete(alert); alert = nullptr; }     // la alarma ha terminado: se quita sola
+    if (alert && alertEai) alertDrop();
+    if (alert && !(l.ok && l.emg)) alertDrop();                 // la alarma ha terminado: se quita sola
     const bool snoozed = !alertClosedCall.empty() && l.ec == alertClosedCall && nowMs() - alertClosedAt < 600000;
-    if (l.ok && l.emg && l.eq != alertClosedEq && !snoozed) {
-        if (!alert || alertEq != l.eq) { buildAlert(false); alertEq = l.eq; }
-        lv_obj_t* p = lv_obj_get_child(alert, 0);
-        const char* kind = l.ek == "mob" ? "MAN OVERBOARD" : l.ek == "ais_sos" ? "AIS DISTRESS" : l.ek == "ais_cpa" ? "COLLISION RISK" : "EMERGENCY";
-        setText(lv_obj_get_child(p, 0), kind);
-        setText(lv_obj_get_child(p, 1), l.ec.empty() ? "-" : l.ec.c_str());
-        std::string body = l.et + (l.em ? "  (message)" : "  (beacon)");
-        double la, lo;
-        for (const proto::Heard& h : M->heard)
-            if (h.call == l.ec && h.hasPos) {
-                if (ownPos(la, lo)) body += "\n" + fmtKm(proto::distanceKm(la, lo, h.lat, h.lon)) + " at " + fmtDeg(proto::bearingDeg(la, lo, h.lat, h.lon)) + " (" + proto::cardinal16(proto::bearingDeg(la, lo, h.lat, h.lon)) + ")";
-                body += "  \xC2\xB7  " + proto::locator(h.lat, h.lon);
-                break;
+    if (!(l.ok && l.emg) || l.eq == alertClosedEq || snoozed) return;
+    if (!alert || alertEq != l.eq) { buildAlert(false); alertEq = l.eq; }
+    if (l.ek == "mob") alertHead("MAN OVERBOARD", "APRS \xC2\xB7 man overboard beacon", P->red);
+    else if (l.ek == "ais_sos") alertHead("AIS DISTRESS", "AIS \xC2\xB7 distress device (SART, MOB or EPIRB)", P->red);
+    else if (l.ek == "ais_cpa") alertHead("COLLISION RISK", "AIS \xC2\xB7 closest point of approach", P->amber);
+    else alertHead("EMERGENCY", l.em ? "APRS \xC2\xB7 emergency message" : "APRS \xC2\xB7 emergency beacon", P->red);
+    setText(aName, l.ec.empty() ? "-" : l.ec.c_str());
+    std::string body;
+    double la, lo;
+    const bool me = ownPos(la, lo);
+    for (const proto::Heard& h : M->heard)
+        if (h.call == l.ec) {
+            if (h.hasPos && me) {
+                const double brg = proto::bearingDeg(la, lo, h.lat, h.lon);
+                body += "Distance / bearing:  " + fmtKm(proto::distanceKm(la, lo, h.lat, h.lon)) + " \xC2\xB7 " + fmtDeg(brg) + " (" + proto::cardinal16(brg) + ")\n";
             }
-        setText(lv_obj_get_child(p, 2), body.c_str());
-    }
+            if (h.hasPos) { snprintf(b, sizeof b, "Position:  %.5f  %.5f \xC2\xB7 %s\n", h.lat, h.lon, proto::locator(h.lat, h.lon).c_str()); body += b; }
+            if (h.spd > 0) body += "Speed / course:  " + fmtSpeed(h.spd) + " \xC2\xB7 " + fmtDeg(h.crs) + "\n";
+            body += "Heard:  " + fmtAge(h.age + (int)((nowMs() - M->heardAtMs) / 1000)) + " ago\n";
+            break;
+        }
+    for (const proto::Vessel& v : M->ais)
+        if (!l.ec.empty() && (v.name == l.ec || std::to_string(v.mmsi) == l.ec)) {
+            if (v.nm >= 0) { int k = snprintf(b, sizeof b, "Distance / bearing:  %.1f nm", v.nm); if (v.brg >= 0) k += snprintf(b + k, sizeof b - k, " \xC2\xB7 %03d\xC2\xB0", v.brg); body += std::string(b) + "\n"; }
+            if (v.cpa >= 0 && v.tcpa >= 0) { snprintf(b, sizeof b, "CPA:  %.2f nm in %.0f min\n", v.cpa, v.tcpa); body += b; }
+            if (v.sog >= 0) { int k = snprintf(b, sizeof b, "Speed / course:  %.1f kn", v.sog); if (v.cog >= 0) k += snprintf(b + k, sizeof b - k, " \xC2\xB7 %03.0f\xC2\xB0", v.cog); body += std::string(b) + "\n"; }
+            snprintf(b, sizeof b, "MMSI %u%s%s\n", (unsigned)v.mmsi, v.cl.empty() ? "" : " \xC2\xB7 class ", v.cl.c_str());
+            body += b;
+            break;
+        }
+    if (!l.et.empty()) body += (l.em ? "Message:  " : "Text:  ") + l.et;
+    while (!body.empty() && body.back() == '\n') body.pop_back();
+    setText(aBody, body.c_str());
 }
 
 // ------------------------------------------------------------------ arranque y bucle
