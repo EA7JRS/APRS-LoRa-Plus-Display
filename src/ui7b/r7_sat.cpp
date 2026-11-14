@@ -89,7 +89,7 @@ static void buildSat(lv_obj_t* root) {
     sName = text(left, "-", &app_bold_26, P->text);
     oneLine(sName);
     lv_obj_set_width(sName, LV_PCT(100));
-    sComp = compass(left, 210);
+    sComp = rotorDial(left, 210);
     lv_obj_t* ae = row(left, 20);
     lv_obj_set_flex_align(ae, LV_FLEX_ALIGN_SPACE_AROUND, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
     lv_obj_t* a1 = col(ae, 0); lv_obj_set_width(a1, LV_SIZE_CONTENT); section(a1, "AZ"); sAz = text(a1, "-", &app_mono_40, P->amber);

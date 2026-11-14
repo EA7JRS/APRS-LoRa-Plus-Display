@@ -509,12 +509,118 @@ void List::end() { for (size_t i = n; i < rows.size(); i++) show(rows[i], false)
 int clickIndex(lv_event_t* e) { return (int)(intptr_t)lv_obj_get_user_data(lv_event_get_current_target_obj(e)); }
 
 // ------------------------------------------------------------------ brujula
+// Esfera del rotor con el estilo de la de sat-aprs (EquipoRotor.tsx): fondo oscuro, graduada cada 5 grados (larga cada 30,
+// media cada 10), numeros cada 30, N en rojo; aguja azul en dos tonos con contrapeso; objetivo en ambar (linea de puntos e
+// indice en el borde); proa en verde (estacion en movimiento); topes mecanicos en rojo. Medidas sobre una esfera de 220.
+static void dialDraw(lv_layer_t* layer, const Compass* c, int cx, int cy, int R0) {
+    const float s = R0 / 106.0f;
+    auto at = [&](float deg, float r, float side, lv_point_precise_t& p) {   // r hacia fuera, side a la derecha
+        float t = (deg - c->up) * (float)M_PI / 180.0f, ux = sinf(t), uy = -cosf(t);
+        p.x = cx + (r * ux - side * uy) * s; p.y = cy + (r * uy + side * ux) * s;
+    };
+    lv_draw_rect_dsc_t rd;
+    lv_draw_rect_dsc_init(&rd);
+    rd.radius = LV_RADIUS_CIRCLE;
+    for (int i = 0; i <= 12; i++) {                                 // degradado radial: centro algo por encima, #060b14 -> #16283a
+        float f = i / 12.0f, r = R0 * (1.0f - 0.62f * f);
+        int ox = 0, oy = (int)(-0.08f * R0 * f);
+        auto mix = [&](int a, int b) { return (int)(a + (b - a) * f); };
+        rd.bg_color = lv_color_make(mix(0x06, 0x16), mix(0x0b, 0x28), mix(0x14, 0x3a));
+        lv_area_t d = {(int32_t)(cx + ox - r), (int32_t)(cy + oy - r), (int32_t)(cx + ox + r), (int32_t)(cy + oy + r)};
+        lv_draw_rect(layer, &rd, &d);
+    }
+    lv_draw_arc_dsc_t ad;
+    lv_draw_arc_dsc_init(&ad);
+    ad.center.x = cx; ad.center.y = cy; ad.start_angle = 0; ad.end_angle = 360;
+    ad.color = lv_color_hex(0x334155); ad.width = 2; ad.radius = R0; lv_draw_arc(layer, &ad);
+    ad.color = lv_color_hex(0x1e293b); ad.width = 1; ad.radius = (int)(62 * s); lv_draw_arc(layer, &ad);
+    if (c->stopMax - c->stopMin < 360) {                            // zona muerta entre el tope maximo y el minimo
+        ad.color = lv_color_hex(0xf87171); ad.width = (int)(4 * s) + 1; ad.radius = (int)(104 * s); ad.opa = LV_OPA_70;
+        float a0 = fmodf(c->stopMax - c->up + 720, 360), a1 = fmodf(c->stopMin - c->up + 720, 360);
+        ad.start_angle = (int)(a0 - 90 + 360) % 360; ad.end_angle = (int)(a1 - 90 + 360) % 360;   // 0 de LVGL = este
+        lv_draw_arc(layer, &ad);
+        ad.opa = LV_OPA_COVER;
+    }
+    lv_draw_line_dsc_t ld;
+    lv_draw_line_dsc_init(&ld);
+    ld.round_start = ld.round_end = 1;
+    for (int d = 0; d < 360; d += 5) {
+        bool mayor = d % 30 == 0, media = d % 10 == 0;
+        ld.color = lv_color_hex(mayor ? 0xe2e8f0 : media ? 0x94a3b8 : 0x475569); ld.width = mayor ? 2 : 1;
+        at((float)d, mayor ? 90.0f : media ? 94.0f : 97.0f, 0, ld.p1); at((float)d, 103, 0, ld.p2);
+        lv_draw_line(layer, &ld);
+    }
+    lv_draw_label_dsc_t td;
+    lv_draw_label_dsc_init(&td);
+    td.align = LV_TEXT_ALIGN_CENTER;
+    const bool big = R0 > 90;
+    for (int d = 0; d < 360; d += 30) {
+        static const char* card[] = {"N", "E", "S", "W"};
+        const bool letra = d % 90 == 0;
+        char n[6];
+        snprintf(n, sizeof n, "%d", d);
+        lv_point_precise_t p;
+        at((float)d, letra ? 76.0f : 78.0f, 0, p);
+        td.font = letra ? (big ? &app_bold_22 : &app_bold_18) : &app_cond_16;
+        td.color = lv_color_hex(d == 0 ? 0xf87171 : letra ? 0xf1f5f9 : 0x94a3b8);
+        td.text = letra ? card[d / 90] : n;
+        const int h = lv_font_get_line_height(td.font);
+        lv_area_t la = {(int32_t)p.x - 24, (int32_t)p.y - h / 2, (int32_t)p.x + 24, (int32_t)p.y + h / 2};
+        lv_draw_label(layer, &td, &la);
+    }
+    lv_draw_triangle_dsc_t tr;
+    lv_draw_triangle_dsc_init(&tr);
+    if (c->hasOwn) {                                                // proa del vehiculo o barco: triangulo hueco y linea tenue
+        ld.color = lv_color_hex(0xa7f3d0); ld.width = 2;
+        lv_point_precise_t t0, t1, t2;
+        at(c->own, 60, 0, t0); at(c->own, 48, -6, t1); at(c->own, 48, 6, t2);
+        ld.p1 = t0; ld.p2 = t1; lv_draw_line(layer, &ld);
+        ld.p1 = t1; ld.p2 = t2; lv_draw_line(layer, &ld);
+        ld.p1 = t2; ld.p2 = t0; lv_draw_line(layer, &ld);
+        ld.width = 1; ld.opa = LV_OPA_50;
+        at(c->own, 48, 0, ld.p1); at(c->own, 16, 0, ld.p2); lv_draw_line(layer, &ld);
+        ld.opa = LV_OPA_COVER;
+    }
+    if (c->hasTarget) {                                             // objetivo: linea de puntos e indice en el borde
+        ld.color = lv_color_hex(0xfbbf24); ld.width = 2; ld.dash_width = (int)(3 * s) + 1; ld.dash_gap = (int)(5 * s) + 1;
+        ld.round_start = ld.round_end = 0;
+        at(c->target, 14, 0, ld.p1); at(c->target, 88, 0, ld.p2); lv_draw_line(layer, &ld);
+        ld.dash_width = ld.dash_gap = 0; ld.round_start = ld.round_end = 1;
+        tr.color = lv_color_hex(0xfbbf24);
+        at(c->target, 91, 0, tr.p[0]); at(c->target, 105, -7, tr.p[1]); at(c->target, 105, 7, tr.p[2]);
+        lv_draw_triangle(layer, &tr);
+    }
+    if (c->hasRotor) {                                              // aguja del acimut: contrapeso y punta en dos tonos
+        tr.color = lv_color_hex(0x475569);
+        at(c->rotor, 0, -5, tr.p[0]); at(c->rotor, -34, 0, tr.p[1]); at(c->rotor, 0, 5, tr.p[2]);
+        lv_draw_triangle(layer, &tr);
+        tr.color = lv_color_hex(0x7dd3fc);
+        at(c->rotor, 0, -7, tr.p[0]); at(c->rotor, 86, 0, tr.p[1]); at(c->rotor, 0, 0, tr.p[2]);
+        lv_draw_triangle(layer, &tr);
+        tr.color = lv_color_hex(0x0284c7);
+        at(c->rotor, 0, 0, tr.p[0]); at(c->rotor, 86, 0, tr.p[1]); at(c->rotor, 0, 7, tr.p[2]);
+        lv_draw_triangle(layer, &tr);
+        ld.color = lv_color_hex(0xe0f2fe); ld.width = 1; ld.opa = LV_OPA_60;
+        at(c->rotor, 6, 0, ld.p1); at(c->rotor, 80, 0, ld.p2); lv_draw_line(layer, &ld);
+        ld.opa = LV_OPA_COVER;
+    }
+    rd.bg_color = lv_color_hex(0x0f172a); rd.border_color = lv_color_hex(0x7dd3fc); rd.border_width = 2;
+    int h = (int)(9 * s);
+    lv_area_t d = {cx - h, cy - h, cx + h, cy + h};
+    lv_draw_rect(layer, &rd, &d);
+    rd.bg_color = lv_color_hex(0x7dd3fc); rd.border_width = 0;
+    h = (int)(3 * s) + 1;
+    d = {cx - h, cy - h, cx + h, cy + h};
+    lv_draw_rect(layer, &rd, &d);
+}
+
 static void compassDraw(lv_event_t* e) {
     lv_obj_t* o = lv_event_get_target_obj(e);
     Compass* c = (Compass*)lv_event_get_user_data(e);
     lv_layer_t* layer = lv_event_get_layer(e);
     lv_area_t a;
     lv_obj_get_coords(o, &a);
+    if (c->dial) { dialDraw(layer, c, (a.x1 + a.x2) / 2, (a.y1 + a.y2) / 2, lv_area_get_width(&a) / 2 - 2); return; }
     const int cx = (a.x1 + a.x2) / 2, cy = (a.y1 + a.y2) / 2, R = lv_area_get_width(&a) / 2 - 4;
     auto pt = [&](float deg, float r, lv_point_precise_t& p) {      // deg: rumbo verdadero, girado con lo que va arriba
         float t = (deg - c->up) * (float)M_PI / 180.0f;
@@ -577,6 +683,16 @@ Compass* compass(lv_obj_t* p, int size) {
     lv_obj_set_size(c->obj, size, size);
     lv_obj_add_event_cb(c->obj, compassDraw, LV_EVENT_DRAW_MAIN, c);
     return c;
+}
+Compass* rotorDial(lv_obj_t* p, int size) {
+    Compass* c = compass(p, size);
+    c->dial = true;
+    return c;
+}
+void Compass::stops(float a, float b) {
+    if (a == stopMin && b == stopMax) return;
+    stopMin = a; stopMax = b;
+    lv_obj_invalidate(obj);
 }
 void Compass::set(float u, const float* t, const float* r, const float* o) {
     bool ch = u != up || (t != nullptr) != hasTarget || (r != nullptr) != hasRotor || (o != nullptr) != hasOwn ||

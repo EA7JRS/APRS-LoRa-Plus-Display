@@ -213,9 +213,13 @@ struct Compass {
     lv_obj_t* obj;
     float up = 0, target = 0, rotor = 0, own = 0;
     bool hasTarget = false, hasRotor = false, hasOwn = false;
+    bool dial = false;                                  // esfera del rotor (estilo de sat-aprs): graduada cada 5 grados, aguja con contrapeso
+    float stopMin = 0, stopMax = 360;                   // topes mecanicos del acimut (solo se marcan si no es una vuelta entera)
     void set(float upDeg, const float* targetDeg, const float* rotorDeg, const float* ownDeg);
+    void stops(float minAz, float maxAz);
 };
 Compass* compass(lv_obj_t* p, int size);
+Compass* rotorDial(lv_obj_t* p, int size);             // la esfera del rotor de sat-aprs, la app y la caja del rotor
 
 // formato
 std::string fmtAge(int s);

@@ -180,7 +180,7 @@ static void buildRotor(lv_obj_t* root) {
     lv_obj_set_size(left, 360, LV_PCT(100));
     lv_obj_set_scrollable(left, true);
     lv_obj_set_flex_align(left, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    rComp = compass(left, 230);
+    rComp = rotorDial(left, 230);
     lv_obj_t* ae = row(left, 20);
     lv_obj_set_flex_align(ae, LV_FLEX_ALIGN_SPACE_AROUND, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
     lv_obj_t* a1 = col(ae, 0); lv_obj_set_width(a1, LV_SIZE_CONTENT); section(a1, "AZ"); rAz = text(a1, "-", &app_mono_40, P->cyan);
@@ -287,7 +287,11 @@ static void refreshRotor() {
     char b[200];
     setText(rState, cfg::get().rotorLink ? net7::rotorStateText() : "link off");
     float az = p.az, taz = p.taz;
-    rComp->set(0, on && p.hasTarget ? &taz : nullptr, on && p.ok ? &az : nullptr, nullptr);
+    // proa: el rumbo del tracker cuando se mueve (estacion movil); fija, sin proa
+    float crs = M->gnss.crs;
+    const bool moving = M->gnss.fix && M->gnss.spd > 3;
+    rComp->set(0, on && p.hasTarget ? &taz : nullptr, on && p.ok ? &az : nullptr, moving ? &crs : nullptr);
+    rComp->stops(RM.info.minAz, RM.info.maxAz);
     if (on && p.ok) {
         setTextf(rAz, "%.1f\xC2\xB0", p.az);
         if (p.hasEl) setTextf(rEl, "%.1f\xC2\xB0", p.el); else setText(rEl, "-");
