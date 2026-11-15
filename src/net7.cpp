@@ -7,6 +7,8 @@
  */
 #ifdef UI_RADIO
 #include "net7.h"
+
+#include "gunzip.h"
 #include "protocol.h"
 #include "rotor_proto.h"
 #include "settings.h"
@@ -477,7 +479,11 @@ static void doWarnings() {
     warnStatus("downloading...");
     const int code = streamGet(url, sink);
     if (code != 200) { char b[48]; snprintf(b, sizeof b, "download failed (%d)", code); warnStatus(b); return; }
-    if (sink.sc.gzip()) { warnStatus("the file came compressed: not supported yet"); return; }
+    if (sink.sc.gzip()) {                                // AEMET: un .tar.gz con todos los CAP en vigor (se guardo en la PSRAM)
+        warnStatus("unpacking...");
+        const int rc = sink.sc.finish([&](const std::string& blk) { sink.take(blk); });
+        if (rc) { warnStatus(std::string("compressed file: ") + (rc == -6 ? "too big" : gz::errorText(rc))); return; }
+    }
     std::sort(sink.keep.begin(), sink.keep.end(), wxw::before);
     char b[96];
     snprintf(b, sizeof b, "%s: %u in your area of %u in force (%u kB)", st.warnSrc == 1 ? "AEMET" : "Meteoalarm", (unsigned)sink.keep.size(), (unsigned)sink.sc.blocks(),

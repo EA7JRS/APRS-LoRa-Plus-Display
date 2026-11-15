@@ -5,6 +5,8 @@
  * Avisos meteorologicos (ver wxwarn.h).
  */
 #include "wxwarn.h"
+
+#include "gunzip.h"
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
@@ -194,7 +196,10 @@ bool before(const Warning& a, const Warning& b) {
 
 bool Scanner::feed(const uint8_t* data, size_t n, std::string& out) {
     if (first_ && n >= 2) { first_ = false; if (data[0] == 0x1F && data[1] == 0x8B) gzip_ = true; }
-    if (gzip_) return false;
+    if (gzip_) {
+        if (n && !over_) { if (gz_.size() + n > MAXGZ) { over_ = true; gz_.clear(); } else gz_.append((const char*)data, n); }
+        return false;
+    }
     if (n) buf_.append((const char*)data, n);
     for (;;) {
         if (!in_) {
@@ -218,6 +223,22 @@ bool Scanner::feed(const uint8_t* data, size_t n, std::string& out) {
         blocks_++;
         return true;
     }
+}
+
+int Scanner::finish(const std::function<void(const std::string&)>& each) {
+    if (!gzip_) return 0;
+    if (over_) return -6;
+    std::string packed;
+    packed.swap(gz_);
+    gzip_ = false;                                       // a partir de aqui, el texto ya descomprimido pasa por feed
+    first_ = false;
+    std::string blk;
+    const int rc = gz::gunzip((const uint8_t*)packed.data(), packed.size(), [&](const uint8_t* d, size_t k) {
+        bool r = feed(d, k, blk);
+        while (r) { each(blk); r = feed(nullptr, 0, blk); }
+    });
+    gzip_ = true;                                        // para que quien pregunte sepa que venia comprimido
+    return rc;
 }
 
 } // namespace wxw

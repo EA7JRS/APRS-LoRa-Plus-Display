@@ -9,6 +9,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -43,13 +44,17 @@ class Scanner {
    public:
     // true cuando "out" trae un bloque completo; se vuelve a llamar con n = 0 hasta que devuelva false
     bool feed(const uint8_t* data, size_t n, std::string& out);
-    bool gzip() const { return gzip_; }     // el flujo venia comprimido: no se puede leer
+    // Al acabar la descarga: si venia en gzip (AEMET manda un .tar.gz con todos los CAP), lo descomprime y entrega cada
+    // bloque a "each". Devuelve 0 o el error de gz::gunzip (-6 = mas de MAXGZ comprimido).
+    int finish(const std::function<void(const std::string&)>& each);
+    bool gzip() const { return gzip_; }     // el flujo venia comprimido (se guarda y se lee en finish)
     size_t blocks() const { return blocks_; }
    private:
-    std::string buf_;
-    bool in_ = false, gzip_ = false, first_ = true;
+    std::string buf_, gz_;
+    bool in_ = false, gzip_ = false, first_ = true, over_ = false;
     int kind_ = 0;                          // 1 <alert, 2 <entry
     size_t blocks_ = 0;
+    static constexpr size_t MAXGZ = 3u << 20;  // 3 MB comprimidos como mucho (en la PSRAM)
     static constexpr size_t MAX = 24000;    // un aviso mas largo se corta (el poligono va al final)
 };
 
