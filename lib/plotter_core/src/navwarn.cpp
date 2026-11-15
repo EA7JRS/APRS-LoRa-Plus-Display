@@ -65,12 +65,17 @@ bool readCoord(const std::string& s, size_t& i, int degDigits, const char* hemis
         if (p >= s.size() || !isDigit(s[p])) return false;
         deg = deg * 10 + (s[p++] - '0');
     }
-    if (p < s.size() && isDigit(s[p])) return false;               // mas digitos de la cuenta: no es esto
-    if (p >= s.size() || (s[p] != '-' && s[p] != ' ')) return false;
-    p++;
+    // forma compacta de NAVTEX ("3607.5N 00521.2W"): los minutos van pegados a los grados
+    const bool compact = p + 1 < s.size() && isDigit(s[p]) && isDigit(s[p + 1]);
+    if (!compact) {
+        if (p < s.size() && isDigit(s[p])) return false;           // mas digitos de la cuenta: no es esto
+        if (p >= s.size() || (s[p] != '-' && s[p] != ' ')) return false;
+        p++;
+    }
     if (p + 1 >= s.size() || !isDigit(s[p]) || !isDigit(s[p + 1])) return false;
     double min = (s[p] - '0') * 10 + (s[p + 1] - '0');
     p += 2;
+    if (compact && p < s.size() && isDigit(s[p])) return false;    // demasiadas cifras: un numero, no una posicion
     if (p < s.size() && (s[p] == '.' || s[p] == ',') && p + 1 < s.size() && isDigit(s[p + 1])) {
         p++;
         double scale = 0.1;

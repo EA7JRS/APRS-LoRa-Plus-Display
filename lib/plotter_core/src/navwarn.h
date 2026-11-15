@@ -30,7 +30,7 @@ constexpr const char* kIhmNavareaUrl = "https://armada.defensa.gob.es/ihm/XML/na
 bool navWarningsParseIhm(const std::string& xml, std::vector<NavWarning>& out, std::string* generated = nullptr);
 
 // Posiciones escritas como en los radioavisos (y en Navtex): grados y minutos con decimales, "46-04.0N 033-12.8E",
-// "42 11,718N 009 59,778E", "36-31N 006-17W". Devuelve cuantas ha anadido a "out".
+// "42 11,718N 009 59,778E", "36-31N 006-17W" y la compacta de NAVTEX "3607.5N 00521.2W". Devuelve cuantas ha anadido a "out".
 int navWarningPositions(const std::string& text, std::vector<LatLon>& out);
 
 // Distancia en millas del barco a la posicion mas cercana del aviso; negativa si el aviso no trae posiciones.
