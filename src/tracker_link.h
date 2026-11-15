@@ -24,4 +24,11 @@ void setPeerAddress(const std::string& addr);   // vacio = el primer tracker que
 std::string peerAddress();
 void forgetPairing();                           // olvida los emparejamientos (hay que repetirlo tras cambiar el PIN del tracker)
 void reconnect();                               // corta y vuelve a buscar
+// Firmware por BLE (caracteristica ...0005, escrituras sin respuesta): trozos de <= 240 bytes; false si la cola esta llena
+bool fwPush(const uint8_t* data, size_t len);
+size_t fwQueued();                              // trozos que faltan por escribir
+void fwClear();
+// El escaneo BLE lo comparten el enlace con el tracker y el de la caja del rotor (net.cpp)
+void scanLock();
+void scanUnlock();
 }

@@ -10,9 +10,21 @@
 #include <Arduino.h>
 
 #if defined(BOARD_LCD7B)          // Waveshare ESP32-S3-Touch-LCD-7B: 7", RGB 1024x600, GT911
+#ifdef UI_RADIO                   // la misma placa con la interfaz tipo emisora (7B v2)
+#define BOARD_ENV "waveshare_lcd7b_v2"
+#else
 #define BOARD_ENV "waveshare_lcd7b"
+#endif
 #define BOARD_W 1024
 #define BOARD_H 600
+#elif defined(BOARD_LCD7)         // Waveshare ESP32-S3-Touch-LCD-7 (sin B): 7", RGB 800x480, GT911, expansor CH422G
+#ifdef UI_RADIO                   // con la interfaz tipo emisora a escala (LCD-7 v2)
+#define BOARD_ENV "waveshare_lcd7_v2"
+#else
+#define BOARD_ENV "waveshare_lcd7"
+#endif
+#define BOARD_W 800
+#define BOARD_H 480
 #elif defined(BOARD_LCD35)        // Waveshare ESP32-S3-Touch-LCD-3.5 / 3.5-C: 3,5", ST7796 SPI 320x480 en horizontal, FT6336
 #define BOARD_ENV "waveshare_lcd35"
 #define BOARD_W 480
@@ -26,7 +38,7 @@
 #define BOARD_W 240
 #define BOARD_H 280
 #else
-#error "Falta la placa: -DBOARD_LCD7B, -DBOARD_LCD35, -DBOARD_LCD28B o -DBOARD_LCD169 (ver platformio.ini)"
+#error "Falta la placa: -DBOARD_LCD7B, -DBOARD_LCD7, -DBOARD_LCD35, -DBOARD_LCD28B o -DBOARD_LCD169 (ver platformio.ini)"
 #endif
 
 namespace board {
@@ -49,6 +61,9 @@ void draw(int x1, int y1, int x2, int y2, void* pixels);
 
 // Tactil: 1 = dedo puesto (x, y en pixeles de la pantalla), 0 = soltado, -1 = sin dato nuevo.
 int touch(int& x, int& y);
+
+// microSD de las placas de 7" (SPI: SCK 12, MISO 13, MOSI 11): su CS cuelga del expansor. true = seleccionada.
+bool sdSelect(bool on);
 
 // Luz de fondo, 0..100 (0 = apagada).
 void setBacklight(int percent);

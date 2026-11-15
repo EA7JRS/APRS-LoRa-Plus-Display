@@ -8,6 +8,7 @@
  * Se adapta a la pantalla de la placa: grande (1024x600), media (480x320 en horizontal o 480x640 en vertical) y
  * pequena (240x280). Textos en ingles; las fuentes llevan Latin-1 (src/fonts, tools/make_fonts.sh).
  */
+#ifndef UI_RADIO   // la 7B v2 (waveshare_lcd7b_v2) usa la interfaz tipo emisora de src/ui7b/
 #include "ui.h"
 #include "board.h"
 #include "boat_link.h"
@@ -98,6 +99,10 @@ static Layout makeLayout(int w, int h) {
     else                                  // 240 x 280
         l = {Size::S, portrait, &dejavu_14, &dejavu_12, &dejavu_bold_16, &dejavu_12, &dejavu_bold_16, &dejavu_num_32, &lv_font_unscii_8, &dejavu_16, &dejavu_14,
              36, 38, LV_DIR_BOTTOM, true, 96, 34, 120, h * 11 / 20, 24, 150, 4, 2, 6, 98};
+    if (w >= 800 && h < 600) {           // 800 x 480 (Touch-LCD-7): la disposicion grande, mas ajustada
+        l.topH = 56; l.tabBar = 132; l.compass = 290; l.kbH = 220; l.btnW = 190; l.btnH = 50; l.pad = 10; l.keyW = 160;
+        l.fNum = &dejavu_num_44; l.fTitle = &dejavu_bold_24;
+    }
     return l;
 }
 
@@ -556,7 +561,7 @@ static void buildHeard() {
 static void buildMsgs() {
     page(tabMsgs);
     tblMsgs = table(tabMsgs);
-    lv_obj_set_size(tblMsgs, LV_PCT(100), L.sz == Size::L ? 300 : LV_PCT(48));
+    lv_obj_set_size(tblMsgs, LV_PCT(100), L.sz == Size::L && board::H >= 600 ? 300 : LV_PCT(48));
     lv_obj_add_event_cb(tblMsgs, onTblMsgs, LV_EVENT_VALUE_CHANGED, nullptr);
     lv_obj_t* c = card(tabMsgs);
     if (L.sz == Size::L) {
@@ -1496,3 +1501,4 @@ bool heardVisible() { return tabs && lv_tabview_get_tab_active(tabs) == 1; }
 bool messagesVisible() { return tabs && lv_tabview_get_tab_active(tabs) == 2; }
 
 } // namespace ui
+#endif

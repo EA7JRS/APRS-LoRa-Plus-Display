@@ -1,0 +1,1392 @@
+/*
+ * Copyright (C) 2026 Manuel - EA7JRS
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * Nucleo de la interfaz tipo emisora (7B v2): paletas, piezas (Widgets.kt de la app), navegacion con pila, barra de estado,
+ * teclas tactiles, menu lateral, teclado, avisos, ventanas de confirmacion y de alerta, y el arranque.
+ */
+#ifdef UI_RADIO
+#include "r7.h"
+#include "ui.h"
+#include "board.h"
+#include "net7.h"
+#include "settings.h"
+#include "tracker_link.h"
+#include "ui_assets.h"
+#include "wxc7.h"
+#include <src/lvgl_private.h>
+#include <cmath>
+#include <cstdarg>
+#include <cstdio>
+#include <cstring>
+#include <ctime>
+
+extern "C" {
+#ifdef R7_SCALED
+extern const lv_image_dsc_t aprs_sym22_0, aprs_sym22_1, aprs_sym22_2;
+#define aprs_sym_0 aprs_sym22_0
+#define aprs_sym_1 aprs_sym22_1
+#define aprs_sym_2 aprs_sym22_2
+#else
+extern const lv_image_dsc_t aprs_sym_0, aprs_sym_1, aprs_sym_2;
+#endif
+}
+
+namespace r7 {
+
+// ------------------------------------------------------------------ paletas (Theme.kt)
+static const Pal DARK = {0x131A22, 0x0B1016, 0x18222D, 0x263443, 0x161F29, 0x222F3C, 0x1E2A36, 0x2E3E4F, 0x202D3A, 0x3CE68A, 0x2F8F5D, 0x1D3A30,
+                         0x28B5E1, 0xFFB347, 0xA8763A, 0xFF6B6B, 0xFF8A80, 0xE8EEF3, 0x9FB0BF, 0x6F8293, 0xC9D4DE, 0x8FA3B6, 0x4A5D70, 0xD9E1E8,
+                         0x6A7F94, 0x000000, 0x3A4A5B, true};
+static const Pal LIGHT = {0xF2F5F8, 0x0B1016, 0xFFFFFF, 0xD3DCE5, 0xEEF2F6, 0xD8E0E8, 0xE7EDF3, 0xC0CCD8, 0xE2EEF8, 0x0B9A52, 0x6CC79A, 0xDDF4E7,
+                          0x0779AB, 0xB86200, 0xE0AE70, 0xD32F2F, 0xC62828, 0x14202B, 0x52616F, 0x7E8D9B, 0x2C3A47, 0x56687A, 0xA7B4C0, 0xE9EEF3,
+                          0x7A8C9D, 0xFFFFFF, 0xB7C3CF, false};
+const Pal* P = &DARK;
+static const uint32_t S_COLORS[15] = {0x4FC3E0, 0x52D4C0, 0x5BDFA0, 0x72E688, 0x96EA74, 0xD4E650, 0xF2DE3E, 0xFFCF33, 0xFF9A2E,
+                                      0xFF5A3C, 0xFF4636, 0xFF3A33, 0xFF3030, 0xFF2A2A, 0xFF2424};
+static uint32_t dflt(uint32_t v, uint32_t d) { return v == 0xFFFFFFFF ? d : v; }
+
+// ------------------------------------------------------------------ datos
+proto::Model* M = nullptr;
+rotp::Model RM;
+DxStore DX;
+static void (*themeCb)(int) = nullptr;
+
+uint32_t nowMs() { return lv_tick_get(); }
+
+std::string upper(std::string s) { for (char& c : s) c = (char)toupper((unsigned char)c); return s; }
+
+bool ownPos(double& lat, double& lon) {
+    if (!M || !M->gnss.ok || !M->gnss.fix) return false;
+    lat = M->gnss.lat; lon = M->gnss.lon;
+    return true;
+}
+
+std::string myCall() {
+    if (M && M->info.ok && M->status.ok && M->status.profile >= 0 && M->status.profile < (int)M->info.profiles.size())
+        return M->info.profiles[M->status.profile].call;
+    if (M && M->info.ok && !M->info.profiles.empty()) return M->info.profiles[0].call;
+    return cfg::get().dxCall;
+}
+
+// hora: NTP si la hay; si no, la ultima UTC del GNSS del tracker mas lo transcurrido
+static int64_t gnssEpoch = 0;
+static uint32_t gnssEpochAt = 0;
+static std::string gnssUtcSeen;
+static int64_t daysFromCivil(int y, unsigned m, unsigned d) {
+    y -= m <= 2;
+    const int64_t era = (y >= 0 ? y : y - 399) / 400;
+    const unsigned yoe = (unsigned)(y - era * 400);
+    const unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + (int64_t)doe - 719468;
+}
+bool utcNow(int& y, int& mo, int& d, int& h, int& mi, int& s) {
+    int64_t ep = 0;
+    if (net7::timeValid()) ep = (int64_t)time(nullptr);
+    else {
+        if (M && M->gnss.ok && M->gnss.utc.size() >= 19 && M->gnss.utc != gnssUtcSeen) {
+            int Y, Mo, D, Hh, Mi, Ss;
+            if (sscanf(M->gnss.utc.c_str(), "%d-%d-%dT%d:%d:%d", &Y, &Mo, &D, &Hh, &Mi, &Ss) == 6) {
+                gnssEpoch = daysFromCivil(Y, Mo, D) * 86400 + Hh * 3600 + Mi * 60 + Ss;
+                gnssEpochAt = nowMs();
+            }
+            gnssUtcSeen = M->gnss.utc;
+        }
+        if (!gnssEpoch) return false;
+        ep = gnssEpoch + (nowMs() - gnssEpochAt) / 1000;
+    }
+    int64_t days = ep / 86400, rem = ep % 86400;
+    h = (int)(rem / 3600); mi = (int)(rem / 60 % 60); s = (int)(rem % 60);
+    days += 719468;
+    const int64_t era = (days >= 0 ? days : days - 146096) / 146097;
+    const unsigned doe = (unsigned)(days - era * 146097);
+    const unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    const unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    const unsigned mp = (5 * doy + 2) / 153;
+    d = (int)(doy - (153 * mp + 2) / 5 + 1);
+    mo = (int)(mp < 10 ? mp + 3 : mp - 9);
+    y = (int)(yoe + era * 400 + (mo <= 2));
+    return true;
+}
+
+// ------------------------------------------------------------------ piezas
+void baseObj(lv_obj_t* o) {
+    lv_obj_remove_style_all(o);
+    lv_obj_set_scrollable(o, false);
+}
+lv_obj_t* box(lv_obj_t* p) {
+    lv_obj_t* o = lv_obj_create(p);
+    baseObj(o);
+    lv_obj_set_size(o, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    return o;
+}
+lv_obj_t* col(lv_obj_t* p, int gap) {
+    lv_obj_t* o = box(p);
+    lv_obj_set_width(o, LV_PCT(100));
+    lv_obj_set_flex_flow(o, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(o, gap, 0);
+    return o;
+}
+lv_obj_t* row(lv_obj_t* p, int gap) {
+    lv_obj_t* o = box(p);
+    lv_obj_set_width(o, LV_PCT(100));
+    lv_obj_set_flex_flow(o, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(o, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(o, gap, 0);
+    return o;
+}
+lv_obj_t* panel(lv_obj_t* p, int pad, uint32_t bg, uint32_t border) {
+    lv_obj_t* o = box(p);
+    lv_obj_set_width(o, LV_PCT(100));
+    lv_obj_set_style_bg_color(o, C(dflt(bg, P->panel)), 0);
+    lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(o, C(dflt(border, P->panelBorder)), 0);
+    lv_obj_set_style_border_width(o, 1, 0);
+    lv_obj_set_style_radius(o, RADIUS, 0);
+    lv_obj_set_style_pad_all(o, pad, 0);
+    lv_obj_set_flex_flow(o, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(o, 6, 0);
+    return o;
+}
+lv_obj_t* text(lv_obj_t* p, const char* t, const lv_font_t* f, uint32_t color) {
+    lv_obj_t* l = lv_label_create(p);
+    lv_label_set_text(l, t);
+    lv_obj_set_style_text_font(l, f, 0);
+    lv_obj_set_style_text_color(l, C(dflt(color, P->text)), 0);
+    return l;
+}
+lv_obj_t* wrap(lv_obj_t* p, const char* t, const lv_font_t* f, uint32_t color) {
+    lv_obj_t* l = text(p, t, f, dflt(color, P->muted));
+    lv_obj_set_width(l, LV_PCT(100));
+    lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_WRAP);
+    return l;
+}
+lv_obj_t* section(lv_obj_t* p, const char* t) {
+    lv_obj_t* l = text(p, upper(t).c_str(), &app_cond_16, P->muted);
+    lv_obj_set_style_text_letter_space(l, 2, 0);
+    return l;
+}
+void setText(lv_obj_t* l, const char* t) { if (l && strcmp(lv_label_get_text(l), t) != 0) lv_label_set_text(l, t); }
+void setTextf(lv_obj_t* l, const char* fmt, ...) {
+    char b[256];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(b, sizeof b, fmt, ap);
+    va_end(ap);
+    setText(l, b);
+}
+void setColor(lv_obj_t* l, uint32_t c) { lv_obj_set_style_text_color(l, C(c), 0); }
+void show(lv_obj_t* o, bool on) { if (o && lv_obj_is_hidden(o) == on) lv_obj_set_hidden(o, !on); }
+void grow(lv_obj_t* o, int g) { lv_obj_set_flex_grow(o, g); }
+void oneLine(lv_obj_t* l) {
+    lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_DOTS);
+    (lv_obj_set_height)(l, lv_font_get_line_height(lv_obj_get_style_text_font(l, LV_PART_MAIN)));   // puntos reales
+}
+
+void Key::set(const char* l, const char* s) {
+    setText(lab, l);
+    if (sub) { setText(sub, s ? s : ""); show(sub, s && *s); }
+}
+void Key::style(uint32_t color, uint32_t border, uint32_t subColor, uint32_t bg) {
+    lv_obj_set_style_border_color(obj, C(border), 0);
+    setColor(lab, color);
+    if (sub) setColor(sub, dflt(subColor, P->muted));
+    lv_obj_set_style_bg_color(obj, C(dflt(bg, P->key)), 0);
+}
+Key key(lv_obj_t* p, const char* label, const char* sub, int w, int h, lv_event_cb_t cb, void* ud, const lv_font_t* f) {
+    Key k;
+    k.obj = lv_button_create(p);
+    lv_obj_remove_style_all(k.obj);
+    lv_obj_set_size(k.obj, w, h);
+    lv_obj_set_style_bg_color(k.obj, C(P->key), 0);
+    lv_obj_set_style_bg_opa(k.obj, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(k.obj, C(P->selected), LV_STATE_PRESSED);
+    lv_obj_set_style_border_color(k.obj, C(P->keyBorder), 0);
+    lv_obj_set_style_border_width(k.obj, 1, 0);
+    lv_obj_set_style_radius(k.obj, 12, 0);
+    lv_obj_set_flex_flow(k.obj, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(k.obj, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(k.obj, 0, 0);
+    k.lab = text(k.obj, label, f, P->text);
+    k.sub = text(k.obj, sub ? sub : "", &app_cond_16, P->muted);
+    show(k.sub, sub && *sub);
+    if (cb) lv_obj_add_event_cb(k.obj, cb, LV_EVENT_CLICKED, ud);
+    return k;
+}
+lv_obj_t* chip(lv_obj_t* p, const char* label, bool sel, lv_event_cb_t cb, void* ud, int h, uint32_t color) {
+    lv_obj_t* c = lv_button_create(p);
+    lv_obj_remove_style_all(c);
+    lv_obj_set_size(c, LV_SIZE_CONTENT, h);
+    lv_obj_set_style_radius(c, h / 2, 0);
+    lv_obj_set_style_border_width(c, 1, 0);
+    lv_obj_set_style_pad_hor(c, 16, 0);
+    lv_obj_set_style_bg_opa(c, LV_OPA_COVER, 0);
+    lv_obj_t* l = text(c, label, &app_bold_18, P->text);
+    lv_obj_set_style_text_letter_space(l, 1, 0);
+    lv_obj_center(l);
+    chipSet(c, sel, color);
+    if (cb) lv_obj_add_event_cb(c, cb, LV_EVENT_CLICKED, ud);
+    return c;
+}
+void chipSet(lv_obj_t* c, bool sel, uint32_t color) {
+    uint32_t col = dflt(color, P->cyan);
+    lv_obj_set_style_bg_color(c, C(sel ? col : P->bg), 0);
+    lv_obj_set_style_bg_opa(c, sel ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_color(c, C(sel ? col : P->keyBorder), 0);
+    setColor(lv_obj_get_child(c, 0), sel ? P->bg : P->text);
+}
+lv_obj_t* button(lv_obj_t* p, const char* label, lv_event_cb_t cb, void* ud, int w, int h, uint32_t color) {
+    Key k = key(p, label, nullptr, w ? w : 10, h, cb, ud, &app_bold_22);
+    if (!w) { lv_obj_set_width(k.obj, LV_SIZE_CONTENT); lv_obj_set_style_pad_hor(k.obj, 22, 0); lv_obj_set_style_min_width(k.obj, 110, 0); }
+    if (color != 0xFFFFFFFF) buttonColor(k.obj, color);
+    return k.obj;
+}
+void buttonColor(lv_obj_t* b, uint32_t color) {
+    lv_obj_set_style_border_color(b, C(color), 0);
+    setColor(lv_obj_get_child(b, 0), color);
+}
+lv_obj_t* lamp(lv_obj_t* p, int size) {
+    lv_obj_t* l = box(p);
+    lv_obj_set_size(l, size, size);
+    lv_obj_set_style_radius(l, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(l, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(l, C(P->off), 0);
+    return l;
+}
+void lampSet(lv_obj_t* l, bool on, uint32_t color) { lv_obj_set_style_bg_color(l, C(on ? dflt(color, P->green) : P->off), 0); }
+
+Led led(lv_obj_t* p, const char* label, uint32_t color) {
+    Led d;
+    d.color = color;
+    lv_obj_t* c = box(p);
+    lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(c, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    d.halo = lamp(c, 20);
+    lv_obj_set_style_bg_opa(d.halo, LV_OPA_TRANSP, 0);
+    d.dot = lamp(d.halo, 12);
+    lv_obj_center(d.dot);
+    d.lab = text(c, label, &app_cond_16, P->muted);
+    return d;
+}
+void Led::set(bool on, bool ring) {
+    lv_obj_set_style_bg_color(halo, C(color), 0);
+    lv_obj_set_style_bg_opa(halo, on ? LV_OPA_40 : LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_color(dot, C(on ? color : P->off), 0);
+    lv_obj_set_style_border_width(dot, on && ring ? 2 : 0, 0);
+    lv_obj_set_style_border_color(dot, lv_color_white(), 0);
+    setColor(lab, on ? color : P->muted);
+}
+
+SMeter smeter(lv_obj_t* p, int w) {
+    SMeter m;
+    m.obj = row(p, 12);
+    lv_obj_set_width(m.obj, w);
+    lv_obj_t* left = col(m.obj, 2);
+    grow(left);
+    lv_obj_set_width(left, 10);
+    lv_obj_t* bar = row(left, 3);
+    lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+    for (int i = 0; i < 15; i++) {
+        if (i == 9) {                                           // raya blanca entre S9 y los dB de encima
+            lv_obj_t* t = box(bar);
+            lv_obj_set_size(t, 3, 22);
+            lv_obj_set_style_bg_color(t, C(P->text), 0);
+            lv_obj_set_style_bg_opa(t, LV_OPA_80, 0);
+            lv_obj_set_style_margin_hor(t, 3, 0);
+        }
+        lv_obj_t* s = box(bar);
+        lv_obj_set_height(s, i < 9 ? 14 : 18);
+        lv_obj_set_flex_grow(s, 1);
+        lv_obj_set_style_radius(s, 3, 0);
+        lv_obj_set_style_bg_opa(s, LV_OPA_COVER, 0);
+        m.seg[i] = s;
+    }
+    lv_obj_t* sc = row(left, 0);                                // escala 1 3 5 7 9 +20 +40 +60
+    static const char* lbl[] = {"1", "3", "5", "7", "9", "+20", "+40", "+60"};
+    for (int i = 0; i < 8; i++) {
+        lv_obj_t* l = text(sc, lbl[i], &app_cond_16, i == 4 ? S_COLORS[8] : P->faint);
+        lv_obj_set_flex_grow(l, i < 4 ? 2 : i == 4 ? 1 : 2);
+        lv_obj_set_width(l, 10);
+        if (i > 4) lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_RIGHT, 0);
+    }
+    lv_obj_t* right = col(m.obj, 0);
+    lv_obj_set_width(right, LV_SIZE_CONTENT);
+    lv_obj_set_style_min_width(right, 110, 0);
+    lv_obj_set_flex_align(right, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+    m.reading = text(right, "S-", &app_mono_28, P->off);
+    m.extra = text(right, "", &app_cond_16, P->muted);
+    m.set(nullptr, nullptr);
+    return m;
+}
+void SMeter::set(const proto::SReading* r, const char* ex) {
+    int lit = r ? r->segments : 0;
+    for (int i = 0; i < 15; i++) {
+        lv_obj_set_style_bg_color(seg[i], C(S_COLORS[i]), 0);
+        lv_obj_set_style_bg_opa(seg[i], (lv_opa_t)(i < lit ? LV_OPA_COVER : 38), 0);
+    }
+    setText(reading, r ? r->label.c_str() : "S-");
+    setColor(reading, !r || lit == 0 ? P->off : S_COLORS[lit - 1]);
+    setText(extra, ex ? ex : "");
+}
+
+Tile tile(lv_obj_t* p, const char* label, const char* unit, int w) {
+    Tile t;
+    t.obj = panel(p, 12);
+    lv_obj_set_width(t.obj, w);
+    lv_obj_set_style_pad_row(t.obj, 2, 0);
+    section(t.obj, label);
+    lv_obj_t* r = row(t.obj, 6);
+    lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+    t.val = text(r, "-", &app_mono_28, P->text);
+    t.unit = text(r, unit ? unit : "", &app_text_18, P->muted);
+    return t;
+}
+void Tile::set(const char* v, uint32_t color) { setText(val, v); setColor(val, dflt(color, P->text)); }
+
+void Rows::create(lv_obj_t* p, int kw) { box = col(p, 4); keyW = kw; }
+void Rows::add(const char* k, const char* v, uint32_t color) {
+    if (n == r.size()) {
+        lv_obj_t* o = row(box, 8);
+        lv_obj_set_flex_align(o, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+        lv_obj_t* kl = text(o, "", &app_cond_18, P->muted);
+        lv_obj_set_width(kl, keyW);
+        lv_obj_t* vl = text(o, "", font, P->text);
+        lv_obj_set_flex_grow(vl, 1);
+        lv_obj_set_width(vl, 10);
+        lv_label_set_long_mode(vl, LV_LABEL_LONG_MODE_WRAP);
+        r.push_back(o);
+    }
+    lv_obj_t* o = r[n++];
+    show(o, true);
+    setText(lv_obj_get_child(o, 0), k);
+    setText(lv_obj_get_child(o, 1), v);
+    setColor(lv_obj_get_child(o, 1), dflt(color, P->text));
+}
+void Rows::addf(const char* k, uint32_t color, const char* fmt, ...) {
+    char b[200];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(b, sizeof b, fmt, ap);
+    va_end(ap);
+    add(k, b, color);
+}
+void Rows::end() { for (size_t i = n; i < r.size(); i++) show(r[i], false); }
+
+static void onBack(lv_event_t*) { back(); }
+lv_obj_t* header(lv_obj_t* root, const char* title, lv_obj_t** trailing) {
+    lv_obj_t* h = row(root, 8);
+    lv_obj_set_height(h, 56);
+    lv_obj_t* b = lv_button_create(h);
+    lv_obj_remove_style_all(b);
+    lv_obj_set_size(b, 56, 52);
+    lv_obj_set_style_radius(b, 10, 0);
+    lv_obj_set_style_bg_color(b, C(P->selected), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(b, LV_OPA_COVER, LV_STATE_PRESSED);
+    lv_obj_t* a = text(b, "\xE2\x80\xB9", &app_bold_34, P->text);      // ‹
+    lv_obj_center(a);
+    lv_obj_add_event_cb(b, onBack, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t* t = text(h, upper(title).c_str(), &app_bold_26, P->text);
+    lv_obj_set_style_text_letter_space(t, 1, 0);
+    oneLine(t);
+    lv_obj_set_flex_grow(t, 1);
+    lv_obj_set_width(t, 10);
+    lv_obj_t* tr = row(h, 8);
+    lv_obj_set_width(tr, LV_SIZE_CONTENT);
+    if (trailing) *trailing = tr;
+    return h;
+}
+lv_obj_t* scrollArea(lv_obj_t* root) {
+    lv_obj_t* s = col(root, GAP);
+    lv_obj_set_flex_grow(s, 1);
+    lv_obj_set_height(s, 10);
+    lv_obj_set_scrollable(s, true);
+    lv_obj_set_scroll_dir(s, LV_DIR_VER);
+    lv_obj_set_style_pad_right(s, 4, 0);
+    lv_obj_set_style_pad_bottom(s, 8, 0);
+    return s;
+}
+
+// ------------------------------------------------------------------ simbolos APRS
+static const lv_image_dsc_t* sheet(int i) { return i == 0 ? &aprs_sym_0 : i == 1 ? &aprs_sym_1 : &aprs_sym_2; }
+lv_obj_t* symbol(lv_obj_t* p) {
+    lv_obj_t* b = box(p);
+    lv_obj_set_size(b, 34, 34);
+    lv_obj_set_style_radius(b, 8, 0);
+    lv_obj_set_style_bg_color(b, C(P->symbolBg), 0);
+    lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+    for (int i = 0; i < 2; i++) {
+        lv_obj_t* im = lv_image_create(b);
+        (lv_obj_set_size)(im, SYM, SYM);
+        lv_obj_center(im);
+        lv_obj_set_hidden(im, true);
+    }
+    return b;
+}
+static void cellOf(lv_obj_t* im, int sh, char c) {
+    int i = c - '!';
+    lv_image_set_src(im, sheet(sh));
+    lv_image_set_inner_align(im, LV_IMAGE_ALIGN_TOP_LEFT);
+    (lv_obj_set_size)(im, SYM, SYM);
+    lv_image_set_offset_x(im, -(i % 16) * SYM);
+    lv_image_set_offset_y(im, -(i / 16) * SYM);
+    lv_obj_set_hidden(im, false);
+}
+void symbolSet(lv_obj_t* s, char table, char code) {
+    lv_obj_t* base = lv_obj_get_child(s, 0), *ov = lv_obj_get_child(s, 1);
+    if (code < '!' || code > '~') { lv_obj_set_hidden(base, true); lv_obj_set_hidden(ov, true); return; }
+    cellOf(base, table == '/' ? 0 : 1, code);
+    bool overlay = table != '/' && table != '\\' && ((table >= '0' && table <= '9') || (table >= 'A' && table <= 'Z') || (table >= 'a' && table <= 'j'));
+    if (overlay) cellOf(ov, 2, table); else lv_obj_set_hidden(ov, true);
+}
+void drawSymbol(lv_layer_t* layer, int x, int y, char table, char code) {
+    lv_draw_rect_dsc_t bg;
+    lv_draw_rect_dsc_init(&bg);
+    bg.bg_color = C(P->symbolBg); bg.radius = 6; bg.border_color = C(P->bg); bg.border_width = 1;
+    const int hs = SYM / 2;
+    lv_area_t cell = {x - hs, y - hs, x - hs + SYM - 1, y - hs + SYM - 1};
+    lv_area_t ba = {cell.x1 - 2, cell.y1 - 2, cell.x2 + 2, cell.y2 + 2};
+    lv_draw_rect(layer, &bg, &ba);
+    if (code < '!' || code > '~') return;
+    const lv_area_t saved = layer->_clip_area;
+    lv_area_t clip;
+    if (!lv_area_intersect(&clip, &saved, &cell)) return;
+    layer->_clip_area = clip;                                    // de la hoja solo se ve la casilla del simbolo
+    auto put = [&](int sh, char c) {
+        const int i = c - '!';
+        const lv_image_dsc_t* img = sheet(sh);
+        lv_draw_image_dsc_t d;
+        lv_draw_image_dsc_init(&d);
+        d.src = img;
+        lv_area_t ia = {cell.x1 - (i % 16) * SYM, cell.y1 - (i / 16) * SYM, 0, 0};
+        ia.x2 = ia.x1 + img->header.w - 1; ia.y2 = ia.y1 + img->header.h - 1;
+        lv_draw_image(layer, &d, &ia);
+    };
+    put(table == '/' ? 0 : 1, code);
+    if (table != '/' && table != '\\' && ((table >= '0' && table <= '9') || (table >= 'A' && table <= 'Z') || (table >= 'a' && table <= 'j'))) put(2, table);
+    layer->_clip_area = saved;
+}
+const char* symbolName(char table, char code) {
+    struct N { char c; const char* n; };
+    static const N P1[] = {{'!', "Police"}, {'#', "Digipeater"}, {'$', "Phone"}, {'%', "DX cluster"}, {'&', "HF gateway"}, {'\'', "Small aircraft"},
+        {'(', "Mobile satellite station"}, {'*', "Snowmobile"}, {'+', "Red Cross"}, {',', "Boy Scouts"}, {'-', "House"}, {'.', "X"}, {'/', "Red dot"},
+        {':', "Fire"}, {';', "Campground"}, {'<', "Motorcycle"}, {'=', "Railroad engine"}, {'>', "Car"}, {'?', "File server"}, {'@', "Hurricane"},
+        {'A', "Aid station"}, {'B', "BBS"}, {'C', "Canoe"}, {'E', "Eyeball"}, {'F', "Tractor"}, {'G', "Grid square"}, {'H', "Hotel"}, {'I', "TCP/IP"},
+        {'K', "School"}, {'L', "PC user"}, {'M', "MacAPRS"}, {'N', "NTS station"}, {'O', "Balloon"}, {'P', "Police"}, {'R', "Recreational vehicle"},
+        {'S', "Space shuttle"}, {'T', "SSTV"}, {'U', "Bus"}, {'V', "ATV"}, {'W', "Weather service"}, {'X', "Helicopter"}, {'Y', "Sailboat"},
+        {'Z', "Windows"}, {'[', "Person"}, {'\\', "DF station"}, {']', "Post office"}, {'^', "Large aircraft"}, {'_', "Weather station"},
+        {'`', "Satellite dish"}, {'a', "Ambulance"}, {'b', "Bicycle"}, {'c', "Incident command"}, {'d', "Fire station"}, {'e', "Horse"},
+        {'f', "Fire truck"}, {'g', "Glider"}, {'h', "Hospital"}, {'i', "IOTA"}, {'j', "Jeep"}, {'k', "Truck"}, {'l', "Laptop"}, {'m', "Mic-E repeater"},
+        {'n', "Node"}, {'o', "EOC"}, {'p', "Dog"}, {'q', "Grid square"}, {'r', "Repeater"}, {'s', "Ship"}, {'t', "Truck stop"}, {'u', "Semi truck"},
+        {'v', "Van"}, {'w', "Water station"}, {'x', "X / Unix"}, {'y', "House with yagi"}, {'z', "Shelter"}};
+    static const N P2[] = {{'!', "Emergency"}, {'#', "Digipeater"}, {'&', "Gateway"}, {'\'', "Crash site"}, {'(', "Cloudy"}, {'*', "Snow"},
+        {'+', "Church"}, {'-', "House (HF)"}, {'>', "Car"}, {'A', "Box"}, {'D', "Drizzle"}, {'F', "Freezing rain"}, {'H', "Haze"}, {'L', "Lighthouse"},
+        {'N', "Navigation buoy"}, {'O', "Rocket"}, {'P', "Parking"}, {'R', "Restaurant"}, {'S', "Satellite"}, {'T', "Thunderstorm"}, {'U', "Sunny"},
+        {'W', "Weather station"}, {'[', "Wall cloud"}, {'^', "Aircraft"}, {'_', "Weather station"}, {'a', "ARES / RACES"}, {'b', "Blowing dust"},
+        {'e', "Sleet"}, {'f', "Funnel cloud"}, {'g', "Gale"}, {'h', "Store"}, {'j', "Work zone"}, {'k', "SUV"}, {'s', "Ship"}, {'t', "Tornado"},
+        {'u', "Truck"}, {'v', "Van"}, {'w', "Flooding"}, {'y', "Skywarn"}};
+    const N* t = table == '/' ? P1 : P2;
+    size_t n = table == '/' ? sizeof P1 / sizeof *P1 : sizeof P2 / sizeof *P2;
+    for (size_t i = 0; i < n; i++) if (t[i].c == code) return t[i].n;
+    return "";
+}
+
+// ------------------------------------------------------------------ listas
+void List::create(lv_obj_t* p, lv_obj_t* (*mk)(lv_obj_t*), lv_event_cb_t click) { box = col(p, 4); make = mk; onClick = click; }
+lv_obj_t* List::next() {
+    if (n == rows.size()) {
+        lv_obj_t* r = make(box);
+        if (onClick) { lv_obj_set_clickable(r, true); lv_obj_add_event_cb(r, onClick, LV_EVENT_CLICKED, nullptr); }
+        rows.push_back(r);
+    }
+    lv_obj_t* r = rows[n];
+    lv_obj_set_user_data(r, (void*)(intptr_t)n);
+    n++;
+    show(r, true);
+    return r;
+}
+void List::end() { for (size_t i = n; i < rows.size(); i++) show(rows[i], false); }
+int clickIndex(lv_event_t* e) { return (int)(intptr_t)lv_obj_get_user_data(lv_event_get_current_target_obj(e)); }
+
+// ------------------------------------------------------------------ brujula
+// Esfera del rotor con el estilo de la de sat-aprs (EquipoRotor.tsx): fondo oscuro, graduada cada 5 grados (larga cada 30,
+// media cada 10), numeros cada 30, N en rojo; aguja azul en dos tonos con contrapeso; objetivo en ambar (linea de puntos e
+// indice en el borde); proa en verde (estacion en movimiento); topes mecanicos en rojo. Medidas sobre una esfera de 220.
+static void dialDraw(lv_layer_t* layer, const Compass* c, int cx, int cy, int R0) {
+    const float s = R0 / 106.0f;
+    auto at = [&](float deg, float r, float side, lv_point_precise_t& p) {   // r hacia fuera, side a la derecha
+        float t = (deg - c->up) * (float)M_PI / 180.0f, ux = sinf(t), uy = -cosf(t);
+        p.x = cx + (r * ux - side * uy) * s; p.y = cy + (r * uy + side * ux) * s;
+    };
+    lv_draw_rect_dsc_t rd;
+    lv_draw_rect_dsc_init(&rd);
+    rd.radius = LV_RADIUS_CIRCLE;
+    for (int i = 0; i <= 12; i++) {                                 // degradado radial: centro algo por encima, #060b14 -> #16283a
+        float f = i / 12.0f, r = R0 * (1.0f - 0.62f * f);
+        int ox = 0, oy = (int)(-0.08f * R0 * f);
+        auto mix = [&](int a, int b) { return (int)(a + (b - a) * f); };
+        rd.bg_color = lv_color_make(mix(0x06, 0x16), mix(0x0b, 0x28), mix(0x14, 0x3a));
+        lv_area_t d = {(int32_t)(cx + ox - r), (int32_t)(cy + oy - r), (int32_t)(cx + ox + r), (int32_t)(cy + oy + r)};
+        lv_draw_rect(layer, &rd, &d);
+    }
+    lv_draw_arc_dsc_t ad;
+    lv_draw_arc_dsc_init(&ad);
+    ad.center.x = cx; ad.center.y = cy; ad.start_angle = 0; ad.end_angle = 360;
+    ad.color = lv_color_hex(0x334155); ad.width = 2; ad.radius = R0; lv_draw_arc(layer, &ad);
+    ad.color = lv_color_hex(0x1e293b); ad.width = 1; ad.radius = (int)(62 * s); lv_draw_arc(layer, &ad);
+    if (c->stopMax - c->stopMin < 360) {                            // zona muerta entre el tope maximo y el minimo
+        ad.color = lv_color_hex(0xf87171); ad.width = (int)(4 * s) + 1; ad.radius = (int)(104 * s); ad.opa = LV_OPA_70;
+        float a0 = fmodf(c->stopMax - c->up + 720, 360), a1 = fmodf(c->stopMin - c->up + 720, 360);
+        ad.start_angle = (int)(a0 - 90 + 360) % 360; ad.end_angle = (int)(a1 - 90 + 360) % 360;   // 0 de LVGL = este
+        lv_draw_arc(layer, &ad);
+        ad.opa = LV_OPA_COVER;
+    }
+    lv_draw_line_dsc_t ld;
+    lv_draw_line_dsc_init(&ld);
+    ld.round_start = ld.round_end = 1;
+    for (int d = 0; d < 360; d += 5) {
+        bool mayor = d % 30 == 0, media = d % 10 == 0;
+        ld.color = lv_color_hex(mayor ? 0xe2e8f0 : media ? 0x94a3b8 : 0x475569); ld.width = mayor ? 2 : 1;
+        at((float)d, mayor ? 90.0f : media ? 94.0f : 97.0f, 0, ld.p1); at((float)d, 103, 0, ld.p2);
+        lv_draw_line(layer, &ld);
+    }
+    lv_draw_label_dsc_t td;
+    lv_draw_label_dsc_init(&td);
+    td.align = LV_TEXT_ALIGN_CENTER;
+    const bool big = R0 > 90;
+    for (int d = 0; d < 360; d += 30) {
+        static const char* card[] = {"N", "E", "S", "W"};
+        const bool letra = d % 90 == 0;
+        char n[6];
+        snprintf(n, sizeof n, "%d", d);
+        lv_point_precise_t p;
+        at((float)d, letra ? 76.0f : 78.0f, 0, p);
+        td.font = letra ? (big ? &app_bold_22 : &app_bold_18) : &app_cond_16;
+        td.color = lv_color_hex(d == 0 ? 0xf87171 : letra ? 0xf1f5f9 : 0x94a3b8);
+        td.text = letra ? card[d / 90] : n;
+        const int h = lv_font_get_line_height(td.font);
+        lv_area_t la = {(int32_t)p.x - 24, (int32_t)p.y - h / 2, (int32_t)p.x + 24, (int32_t)p.y + h / 2};
+        lv_draw_label(layer, &td, &la);
+    }
+    lv_draw_triangle_dsc_t tr;
+    lv_draw_triangle_dsc_init(&tr);
+    if (c->hasOwn) {                                                // proa del vehiculo o barco: triangulo hueco y linea tenue
+        ld.color = lv_color_hex(0xa7f3d0); ld.width = 2;
+        lv_point_precise_t t0, t1, t2;
+        at(c->own, 60, 0, t0); at(c->own, 48, -6, t1); at(c->own, 48, 6, t2);
+        ld.p1 = t0; ld.p2 = t1; lv_draw_line(layer, &ld);
+        ld.p1 = t1; ld.p2 = t2; lv_draw_line(layer, &ld);
+        ld.p1 = t2; ld.p2 = t0; lv_draw_line(layer, &ld);
+        ld.width = 1; ld.opa = LV_OPA_50;
+        at(c->own, 48, 0, ld.p1); at(c->own, 16, 0, ld.p2); lv_draw_line(layer, &ld);
+        ld.opa = LV_OPA_COVER;
+    }
+    if (c->hasTarget) {                                             // objetivo: linea de puntos e indice en el borde
+        ld.color = lv_color_hex(0xfbbf24); ld.width = 2; ld.dash_width = (int)(3 * s) + 1; ld.dash_gap = (int)(5 * s) + 1;
+        ld.round_start = ld.round_end = 0;
+        at(c->target, 14, 0, ld.p1); at(c->target, 88, 0, ld.p2); lv_draw_line(layer, &ld);
+        ld.dash_width = ld.dash_gap = 0; ld.round_start = ld.round_end = 1;
+        tr.color = lv_color_hex(0xfbbf24);
+        at(c->target, 91, 0, tr.p[0]); at(c->target, 105, -7, tr.p[1]); at(c->target, 105, 7, tr.p[2]);
+        lv_draw_triangle(layer, &tr);
+    }
+    if (c->hasRotor) {                                              // aguja del acimut: contrapeso y punta en dos tonos
+        tr.color = lv_color_hex(0x475569);
+        at(c->rotor, 0, -5, tr.p[0]); at(c->rotor, -34, 0, tr.p[1]); at(c->rotor, 0, 5, tr.p[2]);
+        lv_draw_triangle(layer, &tr);
+        tr.color = lv_color_hex(0x7dd3fc);
+        at(c->rotor, 0, -7, tr.p[0]); at(c->rotor, 86, 0, tr.p[1]); at(c->rotor, 0, 0, tr.p[2]);
+        lv_draw_triangle(layer, &tr);
+        tr.color = lv_color_hex(0x0284c7);
+        at(c->rotor, 0, 0, tr.p[0]); at(c->rotor, 86, 0, tr.p[1]); at(c->rotor, 0, 7, tr.p[2]);
+        lv_draw_triangle(layer, &tr);
+        ld.color = lv_color_hex(0xe0f2fe); ld.width = 1; ld.opa = LV_OPA_60;
+        at(c->rotor, 6, 0, ld.p1); at(c->rotor, 80, 0, ld.p2); lv_draw_line(layer, &ld);
+        ld.opa = LV_OPA_COVER;
+    }
+    rd.bg_color = lv_color_hex(0x0f172a); rd.border_color = lv_color_hex(0x7dd3fc); rd.border_width = 2;
+    int h = (int)(9 * s);
+    lv_area_t d = {cx - h, cy - h, cx + h, cy + h};
+    lv_draw_rect(layer, &rd, &d);
+    rd.bg_color = lv_color_hex(0x7dd3fc); rd.border_width = 0;
+    h = (int)(3 * s) + 1;
+    d = {cx - h, cy - h, cx + h, cy + h};
+    lv_draw_rect(layer, &rd, &d);
+}
+
+static void compassDraw(lv_event_t* e) {
+    lv_obj_t* o = lv_event_get_target_obj(e);
+    Compass* c = (Compass*)lv_event_get_user_data(e);
+    lv_layer_t* layer = lv_event_get_layer(e);
+    lv_area_t a;
+    lv_obj_get_coords(o, &a);
+    if (c->dial) { dialDraw(layer, c, (a.x1 + a.x2) / 2, (a.y1 + a.y2) / 2, lv_area_get_width(&a) / 2 - 2); return; }
+    const int cx = (a.x1 + a.x2) / 2, cy = (a.y1 + a.y2) / 2, R = lv_area_get_width(&a) / 2 - 4;
+    auto pt = [&](float deg, float r, lv_point_precise_t& p) {      // deg: rumbo verdadero, girado con lo que va arriba
+        float t = (deg - c->up) * (float)M_PI / 180.0f;
+        p.x = cx + r * sinf(t); p.y = cy - r * cosf(t);
+    };
+    lv_draw_arc_dsc_t ad;
+    lv_draw_arc_dsc_init(&ad);
+    ad.center.x = cx; ad.center.y = cy; ad.start_angle = 0; ad.end_angle = 360;
+    ad.color = C(P->panelBorder); ad.width = 2; ad.radius = R; lv_draw_arc(layer, &ad);
+    ad.radius = R * 2 / 3; ad.color = C(P->subBorder); lv_draw_arc(layer, &ad);
+    ad.radius = R / 3; lv_draw_arc(layer, &ad);
+    lv_draw_line_dsc_t ld;
+    lv_draw_line_dsc_init(&ld);
+    for (int d = 0; d < 360; d += 10) {                             // marcas cada 10 grados; las de 30 mas largas
+        bool major = d % 30 == 0;
+        ld.color = C(major ? P->muted : P->faint); ld.width = major ? 3 : 1;
+        pt((float)d, (float)R, ld.p1); pt((float)d, R - (major ? 16.0f : 8.0f), ld.p2);
+        lv_draw_line(layer, &ld);
+    }
+    lv_draw_label_dsc_t td;
+    lv_draw_label_dsc_init(&td);
+    td.align = LV_TEXT_ALIGN_CENTER;
+    static const char* card[] = {"N", "E", "S", "W"};
+    for (int i = 0; i < 4; i++) {
+        lv_point_precise_t p;
+        pt(i * 90.0f, R - 36.0f, p);
+        td.font = &app_bold_26; td.color = C(i == 0 ? P->red : P->text); td.text = card[i];
+        lv_area_t la = {(int32_t)p.x - 20, (int32_t)p.y - 15, (int32_t)p.x + 20, (int32_t)p.y + 15};
+        lv_draw_label(layer, &td, &la);
+    }
+    auto needle = [&](float deg, uint32_t color, float r0, float r1, int w) {
+        ld.color = C(color); ld.width = w; ld.round_end = 1; ld.round_start = 1;
+        pt(deg, r0, ld.p1); pt(deg, r1, ld.p2);
+        lv_draw_line(layer, &ld);
+        lv_draw_triangle_dsc_t tr;
+        lv_draw_triangle_dsc_init(&tr);
+        tr.color = C(color);
+        pt(deg, r1 + 14, tr.p[0]); pt(deg - 6, r1 - 10, tr.p[1]); pt(deg + 6, r1 - 10, tr.p[2]);
+        lv_draw_triangle(layer, &tr);
+    };
+    if (c->hasRotor) needle(c->rotor, P->cyan, 0, R * 0.70f, 5);
+    if (c->hasTarget) needle(c->target, P->amber, R * 0.15f, R * 0.80f, 6);
+    if (c->hasOwn) {                                                // flecha verde en el centro: rumbo propio
+        lv_draw_triangle_dsc_t tr;
+        lv_draw_triangle_dsc_init(&tr);
+        tr.color = C(P->green);
+        pt(c->own, 26, tr.p[0]); pt(c->own + 140, 18, tr.p[1]); pt(c->own - 140, 18, tr.p[2]);
+        lv_draw_triangle(layer, &tr);
+    } else {
+        lv_draw_rect_dsc_t rd;
+        lv_draw_rect_dsc_init(&rd);
+        rd.bg_color = C(P->text); rd.radius = LV_RADIUS_CIRCLE;
+        lv_area_t d = {cx - 6, cy - 6, cx + 6, cy + 6};
+        lv_draw_rect(layer, &rd, &d);
+    }
+}
+Compass* compass(lv_obj_t* p, int size) {
+    Compass* c = new Compass();
+    c->obj = box(p);
+    lv_obj_set_size(c->obj, size, size);
+    lv_obj_add_event_cb(c->obj, compassDraw, LV_EVENT_DRAW_MAIN, c);
+    return c;
+}
+Compass* rotorDial(lv_obj_t* p, int size) {
+    Compass* c = compass(p, size);
+    c->dial = true;
+    return c;
+}
+void Compass::stops(float a, float b) {
+    if (a == stopMin && b == stopMax) return;
+    stopMin = a; stopMax = b;
+    lv_obj_invalidate(obj);
+}
+void Compass::set(float u, const float* t, const float* r, const float* o) {
+    bool ch = u != up || (t != nullptr) != hasTarget || (r != nullptr) != hasRotor || (o != nullptr) != hasOwn ||
+              (t && *t != target) || (r && *r != rotor) || (o && *o != own);
+    up = u; hasTarget = t; hasRotor = r; hasOwn = o;
+    if (t) target = *t;
+    if (r) rotor = *r;
+    if (o) own = *o;
+    if (ch) lv_obj_invalidate(obj);
+}
+
+// ------------------------------------------------------------------ formato
+std::string fmtAge(int s) {
+    char b[24];
+    if (s < 0) return "-";
+    if (s < 60) snprintf(b, sizeof b, "%ds", s);
+    else if (s < 3600) snprintf(b, sizeof b, "%d min", s / 60);
+    else if (s < 86400) snprintf(b, sizeof b, "%d h", s / 3600);
+    else snprintf(b, sizeof b, "%d d", s / 86400);
+    return b;
+}
+std::string fmtKm(double km) {
+    char b[24];
+    if (km < 0) return "-";
+    const wxc::Unit u = wxc::distUnit(cfg::get().units);
+    const double v = km * u.k;
+    if (v < 10) snprintf(b, sizeof b, "%.1f %s", v, u.label); else snprintf(b, sizeof b, "%.0f %s", v, u.label);
+    return b;
+}
+std::string fmtSpeed(double kmh) {
+    char b[24];
+    const wxc::Unit u = wxc::speedUnit(cfg::get().units);
+    snprintf(b, sizeof b, "%.0f %s", kmh * u.k, u.label);
+    return b;
+}
+const char* speedLabel() { return wxc::speedUnit(cfg::get().units).label; }
+std::string fmtTemp(float c, int decimals) {
+    char b[24];
+    snprintf(b, sizeof b, "%.*f %s", decimals, wxc::tempShown(c, cfg::get().units), wxc::tempLabel(cfg::get().units));
+    return b;
+}
+std::string fmtDeg(double d) { char b[16]; snprintf(b, sizeof b, "%03.0f\xC2\xB0", fmod(d + 360.0, 360.0)); return b; }
+uint32_t tempColor(float c) { return c >= 30 ? P->red : c >= 24 ? P->amber : c <= 5 ? P->cyan : P->text; }
+
+Freq freq(lv_obj_t* p, const lv_font_t* big, const lv_font_t* small) {
+    Freq f;
+    f.obj = row(p, 2);
+    lv_obj_set_width(f.obj, LV_SIZE_CONTENT);
+    lv_obj_set_flex_align(f.obj, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+    f.main = text(f.obj, "---.---", big, P->off);
+    f.sub = text(f.obj, "", small, P->muted);
+    lv_obj_set_style_pad_bottom(f.sub, big == &app_mono_64 ? 8 : 4, 0);
+    return f;
+}
+void Freq::set(uint32_t hz, uint32_t color) {
+    if (!hz) { setText(main, "---.---"); setColor(main, P->off); setText(sub, ""); return; }
+    setText(main, proto::mhz(hz).c_str());
+    setColor(main, dflt(color, P->text));
+    setText(sub, proto::subKhz(hz).c_str());
+}
+
+// ------------------------------------------------------------------ pantallas y navegacion
+static lv_obj_t *scr, *content, *keysBar, *statusBar;
+static ScreenDef defs[SCR_COUNT];
+static lv_obj_t* roots[SCR_COUNT];
+struct Entry { Scr s; std::string arg; };
+static std::vector<Entry> stack;
+static bool forceRefresh = true;
+
+void registerScreen(Scr s, const ScreenDef& d) { defs[s] = d; }
+Scr top() { return stack.empty() ? RADIO : stack.back().s; }
+const std::string& arg() { static std::string none; return stack.empty() ? none : stack.back().arg; }
+void requestRefresh() { forceRefresh = true; }
+
+static void layoutCurrent();
+static void refreshStatus();
+static void showTop(Scr prev) {
+    Scr s = top();
+    if (prev != s && prev < SCR_COUNT && roots[prev]) { show(roots[prev], false); if (defs[prev].leave) defs[prev].leave(); }
+    if (!roots[s]) {
+        lv_obj_t* r = lv_obj_create(content);
+        baseObj(r);
+        lv_obj_set_size(r, W - 2 * PAD, CONTENT_FULL);
+        lv_obj_set_flex_flow(r, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_pad_row(r, GAP, 0);
+        lv_obj_set_style_pad_top(r, 4, 0);
+        roots[s] = r;
+        if (defs[s].build) defs[s].build(r);
+    }
+    show(roots[s], true);
+    layoutCurrent();
+    if (defs[s].enter) defs[s].enter();
+    forceRefresh = true;
+    if (statusBar && M) { refreshStatus(); refreshTouchKeys(); }
+}
+void go(Scr s, const std::string& a) {
+    Scr prev = top();
+    if (s == RADIO) { stack.clear(); stack.push_back({RADIO, ""}); showTop(prev); return; }
+    if (!stack.empty() && stack.back().s == s && stack.back().arg == a) return;
+    if (!stack.empty() && stack.back().s == FMENU) stack.pop_back();              // el menu [F] se cierra al usar una tecla
+    for (size_t i = 0; i < stack.size(); i++) if (stack[i].s == s) { stack.erase(stack.begin() + i); break; }
+    stack.push_back({s, a});
+    while (stack.size() > 12) stack.erase(stack.begin());
+    if (prev == s) { if (defs[s].leave) defs[s].leave(); if (defs[s].enter) defs[s].enter(); forceRefresh = true; return; }
+    showTop(prev);
+}
+void back() {
+    if (stack.size() <= 1) { go(RADIO); return; }
+    Scr prev = top();
+    stack.pop_back();
+    showTop(prev);
+}
+
+// ------------------------------------------------------------------ teclado
+static lv_obj_t* kb = nullptr;
+static int kbH = 270;
+static void layoutCurrent() {
+    Scr s = top();
+    const bool keys = defs[s].keys;
+    const bool kbOn = kb && !lv_obj_is_hidden(kb);
+    show(keysBar, keys && !kbOn);
+    int h = kbOn ? H - STATUS_H - kbH : keys ? CONTENT_H : CONTENT_FULL;
+    lv_obj_set_height(content, h);
+    if (roots[s]) lv_obj_set_height(roots[s], h);
+}
+static void kbEvent(lv_event_t* e) {
+    lv_event_code_t c = lv_event_get_code(e);
+    if (c == LV_EVENT_READY || c == LV_EVENT_CANCEL) {
+        lv_obj_t* ta = lv_keyboard_get_textarea(kb);
+        if (ta) lv_obj_remove_state(ta, LV_STATE_FOCUSED);
+        lv_keyboard_set_textarea(kb, nullptr);
+        lv_obj_set_hidden(kb, true);
+        layoutCurrent();
+        if (ta && c == LV_EVENT_READY) lv_obj_send_event(ta, LV_EVENT_READY, nullptr);
+    }
+}
+void keyboardFor(lv_obj_t* ta) {
+    lv_keyboard_set_textarea(kb, ta);
+    lv_obj_set_hidden(kb, false);
+    layoutCurrent();
+    lv_obj_update_layout(scr);
+    lv_obj_scroll_to_view_recursive(ta, LV_ANIM_OFF);
+}
+static void fieldEvent(lv_event_t* e) {
+    lv_event_code_t c = lv_event_get_code(e);
+    lv_obj_t* ta = lv_event_get_target_obj(e);
+    if (c == LV_EVENT_FOCUSED || c == LV_EVENT_CLICKED) keyboardFor(ta);
+    if (c == LV_EVENT_VALUE_CHANGED && lv_obj_get_user_data(ta)) {     // en mayusculas (indicativos)
+        const char* t = lv_textarea_get_text(ta);
+        bool low = false;
+        for (const char* p = t; *p; p++) if (*p >= 'a' && *p <= 'z') low = true;
+        if (low) { std::string u = upper(t); uint32_t cur = lv_textarea_get_cursor_pos(ta); lv_textarea_set_text(ta, u.c_str()); lv_textarea_set_cursor_pos(ta, cur); }
+    }
+}
+lv_obj_t* field(lv_obj_t* p, const char* placeholder, int w, int maxLen, const char* accepted, bool upperCase) {
+    lv_obj_t* ta = lv_textarea_create(p);
+    lv_obj_set_style_bg_color(ta, C(P->dark ? P->scrim : P->panel), 0);
+    lv_obj_set_style_border_color(ta, C(P->keyBorder), 0);
+    lv_obj_set_style_border_color(ta, C(P->green), LV_STATE_FOCUSED);
+    lv_obj_set_style_border_width(ta, 1, 0);
+    lv_obj_set_style_radius(ta, 10, 0);
+    lv_obj_set_style_text_color(ta, C(P->text), 0);
+    lv_obj_set_style_text_font(ta, &app_text_20, 0);
+    lv_obj_set_style_pad_ver(ta, 12, 0);
+    lv_obj_set_style_text_color(ta, C(P->faint), LV_PART_TEXTAREA_PLACEHOLDER);
+    lv_textarea_set_one_line(ta, true);
+    lv_textarea_set_placeholder_text(ta, placeholder);
+    lv_textarea_set_max_length(ta, maxLen);
+    if (accepted) lv_textarea_set_accepted_chars(ta, accepted);
+    if (w) lv_obj_set_width(ta, w);
+    lv_obj_set_user_data(ta, (void*)(intptr_t)(upperCase ? 1 : 0));
+    lv_obj_add_event_cb(ta, fieldEvent, LV_EVENT_ALL, nullptr);
+    return ta;
+}
+
+// ------------------------------------------------------------------ avisos y confirmaciones
+static lv_obj_t* banner = nullptr;
+static uint32_t bannerAt = 0;
+static void bannerClick(lv_event_t*) { show(banner, false); }
+static void showBanner(const char* t, uint32_t bg) {
+    setText(lv_obj_get_child(banner, 0), t);
+    lv_obj_set_style_bg_color(banner, C(bg), 0);
+    show(banner, true);
+    lv_obj_move_foreground(banner);
+    bannerAt = nowMs();
+}
+void notice(const char* t) { showBanner(t, P->cyan); }
+void error(const char* t) { showBanner(t, P->redSoft); }
+
+struct Confirm { lv_obj_t* back; void (*cb)(void*); void* ud; };
+static Confirm cf = {nullptr, nullptr, nullptr};
+static void cfClose() { if (cf.back) { lv_obj_delete(cf.back); cf.back = nullptr; } }
+static void cfOk(lv_event_t*) { auto cb = cf.cb; void* ud = cf.ud; cfClose(); if (cb) cb(ud); }
+static void cfNo(lv_event_t*) { cfClose(); }
+void confirm(const char* title, const char* body, const char* ok, void (*cb)(void*), void* ud, bool danger) {
+    cfClose();
+    cf.cb = cb; cf.ud = ud;
+    cf.back = lv_obj_create(lv_layer_top());
+    baseObj(cf.back);
+    lv_obj_set_size(cf.back, W, H);
+    lv_obj_set_style_bg_color(cf.back, C(P->scrim), 0);
+    lv_obj_set_style_bg_opa(cf.back, LV_OPA_70, 0);
+    lv_obj_set_clickable(cf.back, true);
+    lv_obj_t* p = panel(cf.back, 22);
+    lv_obj_set_width(p, 560);
+    lv_obj_center(p);
+    lv_obj_set_style_pad_row(p, 14, 0);
+    text(p, title, &app_bold_26, danger ? P->amber : P->text);
+    wrap(p, body, &app_text_20, P->subText);
+    lv_obj_t* r = row(p, 12);
+    lv_obj_set_flex_align(r, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    button(r, "CANCEL", cfNo, nullptr, 170, 56);
+    button(r, ok, cfOk, nullptr, 200, 56, danger ? P->amber : P->green);
+}
+
+bool linked() { return trk::state() == trk::State::Linked; }
+void send(const std::string& line) {
+    if (!linked()) { error("The tracker is not linked (Settings > Tracker)"); return; }
+    trk::send(line);
+}
+
+// ------------------------------------------------------------------ barra de estado
+static lv_obj_t *stCall, *stBle, *stGps, *stBatt, *stClock, *stDisp, *stRot, *stWifi, *stWifiL, *stRotL;
+static void onMenu(lv_event_t*) { openSideMenu(); }
+static void onDisp(lv_event_t*) { if (top() == DISP) back(); else go(DISP); }
+static void onLink(lv_event_t*) { go(SETTINGS); }
+static void buildStatus() {
+    statusBar = lv_obj_create(scr);
+    baseObj(statusBar);
+    lv_obj_set_size(statusBar, W, STATUS_H);
+    lv_obj_set_flex_flow(statusBar, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(statusBar, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_hor(statusBar, 6, 0);
+    lv_obj_set_style_pad_column(statusBar, 14, 0);
+    lv_obj_t* m = lv_button_create(statusBar);
+    lv_obj_remove_style_all(m);
+    lv_obj_set_size(m, 52, 48);
+    lv_obj_set_style_radius(m, 10, 0);
+    lv_obj_set_style_bg_color(m, C(P->selected), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(m, LV_OPA_COVER, LV_STATE_PRESSED);
+    lv_obj_t* ml = text(m, LV_SYMBOL_LIST, &R7_ICON_L, P->text);
+    lv_obj_center(ml);
+    lv_obj_add_event_cb(m, onMenu, LV_EVENT_CLICKED, nullptr);
+    stCall = text(statusBar, "NOCALL", &app_bold_26, P->text);
+    lv_obj_set_flex_grow(stCall, 1);
+    lv_obj_set_width(stCall, 10);
+    auto lampLabel = [](const char* t, lv_obj_t** l, lv_obj_t** lab, lv_event_cb_t cb) {
+        lv_obj_t* r = box(statusBar);
+        lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(r, 6, 0);
+        lv_obj_set_height(r, 44);
+        *l = lamp(r, 11);
+        lv_obj_t* tl = text(r, t, &app_cond_18, P->muted);
+        if (lab) *lab = tl;
+        if (cb) { lv_obj_set_clickable(r, true); lv_obj_add_event_cb(r, cb, LV_EVENT_CLICKED, nullptr); }
+    };
+    lampLabel("BLE", &stBle, nullptr, onLink);
+    lampLabel("GPS", &stGps, nullptr, nullptr);
+    lampLabel("ROT", &stRot, &stRotL, nullptr);
+    lampLabel("WiFi", &stWifi, &stWifiL, onLink);
+    stBatt = text(statusBar, "", &app_semi_20, P->text);
+    stClock = text(statusBar, "--:--Z", &app_semi_20, P->text);
+    stDisp = lv_button_create(statusBar);
+    lv_obj_remove_style_all(stDisp);
+    lv_obj_set_size(stDisp, LV_SIZE_CONTENT, 40);
+    lv_obj_set_style_pad_hor(stDisp, 12, 0);
+    lv_obj_set_style_radius(stDisp, 8, 0);
+    lv_obj_set_style_border_width(stDisp, 1, 0);
+    lv_obj_set_style_border_color(stDisp, C(P->keyBorder), 0);
+    lv_obj_t* dl = text(stDisp, "DISP", &app_bold_18, P->text);
+    lv_obj_center(dl);
+    lv_obj_add_event_cb(stDisp, onDisp, LV_EVENT_CLICKED, nullptr);
+}
+static void refreshStatus() {
+    const bool lk = linked();
+    std::string call = myCall();
+    setText(stCall, call.empty() ? "NOCALL" : call.c_str());
+    lampSet(stBle, lk || trk::state() == trk::State::Pairing, lk ? P->green : P->cyan);
+    lampSet(stGps, M->gnss.ok && M->gnss.fix);
+    net7::Link rl = net7::rotorState();
+    const bool rotOn = cfg::get().rotorLink != 0;
+    show(lv_obj_get_parent(stRot), rotOn);
+    lampSet(stRot, rl == net7::Link::Linked || rl == net7::Link::Connecting, rl == net7::Link::Linked ? P->green : P->cyan);
+    net7::Wifi w = net7::wifi();
+    show(lv_obj_get_parent(stWifi), w.configured);
+    lampSet(stWifi, w.connected);
+    char b[32] = "";
+    if (lk && M->sensors.battPct >= 0) snprintf(b, sizeof b, "%d%%", M->sensors.battPct);
+    else if (lk && M->status.batt > 0) snprintf(b, sizeof b, "%.2fV", M->status.batt);
+    setText(stBatt, b);
+    setColor(stBatt, M->sensors.battPct >= 0 && M->sensors.battPct < 20 ? P->amber : P->text);
+    int y, mo, d, h, mi, s;
+    if (utcNow(y, mo, d, h, mi, s)) snprintf(b, sizeof b, "%02d:%02dZ", h, mi); else snprintf(b, sizeof b, "--:--Z");
+    setText(stClock, b);
+    const bool dOn = top() == DISP;
+    lv_obj_set_style_border_color(stDisp, C(dOn ? P->amber : P->keyBorder), 0);
+    setColor(lv_obj_get_child(stDisp, 0), dOn ? P->amber : P->text);
+}
+
+// ------------------------------------------------------------------ teclas tactiles [F] + 5
+static Key tk[5];
+static lv_obj_t* fBtn;
+static void onF(lv_event_t*) { if (top() == FMENU) back(); else go(FMENU); }
+static void onTouchKey(lv_event_t* e) {
+    int i = (int)(intptr_t)lv_event_get_user_data(e);
+    const FKey* k = fkey(cfg::get().keys[i]);
+    if (k && k->run) k->run();
+}
+static void buildKeys() {
+    keysBar = lv_obj_create(scr);
+    baseObj(keysBar);
+    lv_obj_set_size(keysBar, W, KEYS_H);
+    lv_obj_set_pos(keysBar, 0, H - KEYS_H);
+    lv_obj_set_flex_flow(keysBar, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_hor(keysBar, PAD, 0);
+    lv_obj_set_style_pad_top(keysBar, 6, 0);
+    lv_obj_set_style_pad_bottom(keysBar, 10, 0);
+    lv_obj_set_style_pad_column(keysBar, 8, 0);
+    fBtn = lv_button_create(keysBar);
+    lv_obj_remove_style_all(fBtn);
+    lv_obj_set_size(fBtn, 80, KEYS_H - 16);
+    lv_obj_set_style_radius(fBtn, 12, 0);
+    lv_obj_set_style_bg_opa(fBtn, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(fBtn, C(P->cyan), 0);
+    lv_obj_t* fl = text(fBtn, "F", &app_bold_34, P->bg);
+    lv_obj_center(fl);
+    lv_obj_add_event_cb(fBtn, onF, LV_EVENT_CLICKED, nullptr);
+    for (int i = 0; i < 5; i++) {
+        tk[i] = key(keysBar, "", nullptr, 10, KEYS_H - 16, onTouchKey, (void*)(intptr_t)i, &app_bold_22);
+        lv_obj_set_flex_grow(tk[i].obj, 1);
+    }
+}
+void refreshTouchKeys() {
+    lv_obj_set_style_bg_color(fBtn, C(top() == FMENU ? P->amber : P->cyan), 0);
+    for (int i = 0; i < 5; i++) {
+        const std::string& id = cfg::get().keys[i];
+        const FKey* k = fkey(id);
+        int lit = 0;
+        std::string sub = fkeySub(id, lit);
+        Scr s = top();
+        bool active = (id == "SLIST" && s == SLIST) || (id == "MSG" && (s == MSGS || s == THREAD)) || (id == "MAP" && s == MAP) ||
+                      (id == "DISP" && s == DISP) || (id == "DX" && s == DXC) || (id == "WX" && s == WX) || (id == "SAT" && s == SAT) ||
+                      (id == "ROTOR" && s == ROTOR) || (id == "AIS" && s == AIS);
+        const char* shown = (id == "BCN") ? "TX" : (id == "MSG" && lit == 2) ? sub.c_str() : nullptr;
+        tk[i].set(k ? k->label : id.c_str(), shown);
+        tk[i].style(active ? P->amber : P->text, active ? P->amber : P->keyBorder, lit == 2 ? P->amber : P->muted);
+    }
+}
+
+// ------------------------------------------------------------------ menu lateral
+static lv_obj_t* side = nullptr;
+static void sideClose() { if (side) { lv_obj_delete(side); side = nullptr; } }
+static void sideScrim(lv_event_t* e) { if (lv_event_get_target_obj(e) == side) sideClose(); }
+static void sideGo(lv_event_t* e) { Scr s = (Scr)(intptr_t)lv_event_get_user_data(e); sideClose(); go(s); }
+static void sideTheme(lv_event_t* e) {
+    int t = (int)(intptr_t)lv_event_get_user_data(e);
+    if (t == cfg::get().theme) return;
+    cfg::get().theme = t;
+    cfg::save();
+    if (themeCb) themeCb(t);
+}
+static void sideItem(lv_obj_t* p, const char* label, const char* right, Scr s, bool active) {
+    lv_obj_t* it = row(p, 8);
+    lv_obj_set_height(it, 48);
+    lv_obj_set_style_pad_hor(it, 12, 0);
+    lv_obj_set_style_radius(it, 10, 0);
+    lv_obj_set_style_bg_color(it, C(P->selected), 0);
+    lv_obj_set_style_bg_opa(it, active ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_opa(it, LV_OPA_COVER, LV_STATE_PRESSED);
+    lv_obj_set_clickable(it, true);
+    lv_obj_add_event_cb(it, sideGo, LV_EVENT_CLICKED, (void*)(intptr_t)s);
+    lv_obj_t* l = text(it, label, &app_text_20, active ? P->amber : P->text);
+    lv_obj_set_flex_grow(l, 1);
+    if (right && *right) text(it, right, &app_cond_18, P->muted);
+}
+void openSideMenu() {
+    sideClose();
+    side = lv_obj_create(lv_layer_top());
+    baseObj(side);
+    lv_obj_set_size(side, W, H);
+    lv_obj_set_style_bg_color(side, C(P->scrim), 0);
+    lv_obj_set_style_bg_opa(side, LV_OPA_70, 0);
+    lv_obj_set_clickable(side, true);
+    lv_obj_add_event_cb(side, sideScrim, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t* p = lv_obj_create(side);
+    baseObj(p);
+    lv_obj_set_size(p, 380, H);
+    lv_obj_set_style_bg_color(p, C(P->bg), 0);
+    lv_obj_set_style_bg_opa(p, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_all(p, 16, 0);
+    lv_obj_set_flex_flow(p, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(p, 2, 0);
+    lv_obj_set_scrollable(p, true);
+    lv_obj_set_clickable(p, true);
+    lv_obj_t* h = row(p, 12);
+    lv_obj_t* ic = lv_image_create(h);
+    lv_image_set_src(ic, &img_app_icon);
+    lv_obj_t* hc = col(h, 0);
+    lv_obj_set_width(hc, LV_SIZE_CONTENT);
+    lv_obj_t* t = text(hc, "APRS LoRa+", &app_bold_26, P->text);
+    (void)t;
+#ifdef R7_SCALED
+    text(hc, "Display " DISPLAY_VERSION " \xC2\xB7 LCD-7 v2", &app_text_18, P->muted);
+#else
+    text(hc, "Display " DISPLAY_VERSION " \xC2\xB7 7B v2", &app_text_18, P->muted);
+#endif
+    const Scr s = top();
+    char b[24];
+    lv_obj_set_style_margin_top(section(p, "OPERATE"), 12, 0);
+    sideItem(p, "Radio", "", RADIO, s == RADIO);
+    sideItem(p, "Map (radar)", "", MAP, s == MAP);
+    snprintf(b, sizeof b, "%d", (int)M->heard.size());
+    sideItem(p, "Stations", b, SLIST, s == SLIST);
+    int wx = 0; for (auto& x : M->heard) if (x.wx.ok) wx++;
+    snprintf(b, sizeof b, "%d", wx);
+    sideItem(p, "Weather stations", b, WX, s == WX);
+    snprintf(b, sizeof b, "%d", warnCount());
+    sideItem(p, "Weather warnings", warnCount() ? b : "", WXWARN, s == WXWARN);
+    snprintf(b, sizeof b, "%d", M->msgUnread);
+    sideItem(p, "Messages", M->msgUnread ? b : "", MSGS, s == MSGS);
+    sideItem(p, "DAPNET pager", "", PAGER, s == PAGER);
+    snprintf(b, sizeof b, "%d", (int)DX.spots.size());
+    sideItem(p, "DX cluster", net7::dxState() == net7::Link::Linked ? b : "", DXC, s == DXC);
+    lv_obj_set_style_margin_top(section(p, "DEVICES"), 12, 0);
+    sideItem(p, "Tracker", M->info.ok ? M->info.board.c_str() : trk::stateText(), TRACKER, s == TRACKER);
+    sideItem(p, "Rotor box", cfg::get().rotorLink ? net7::rotorStateText() : "off", ROTOR, s == ROTOR);
+    sideItem(p, "Settings", "", SETTINGS, s == SETTINGS);
+    lv_obj_set_style_margin_top(section(p, "RADIO TOOLS"), 12, 0);
+    sideItem(p, "Satellites", M->sat.ok ? M->sat.name.c_str() : "", SAT, s == SAT);
+    sideItem(p, "Sensors", "", SENSORS, s == SENSORS);
+    sideItem(p, "AIS ships", "", AIS, s == AIS);
+    sideItem(p, "Remote screen", "", REMOTE, s == REMOTE);
+    sideItem(p, "Tracker configuration", "", CONFIG, s == CONFIG);
+    sideItem(p, "Firmware", M->info.ok ? M->info.fw.c_str() : "", FIRMWARE, s == FIRMWARE);
+    sideItem(p, "About", "", ABOUT, s == ABOUT);
+    lv_obj_set_style_margin_top(section(p, "THEME"), 12, 0);
+    lv_obj_t* tr = row(p, 8);
+    chip(tr, "DARK", cfg::get().theme == 0, sideTheme, (void*)(intptr_t)0);
+    chip(tr, "LIGHT", cfg::get().theme == 1, sideTheme, (void*)(intptr_t)1);
+    wrap(p, "The display restarts to apply it.", &app_text_18, P->muted);
+}
+
+// ------------------------------------------------------------------ alerta de emergencia
+// La ventana del plotter (y de AlertOverlay de la app): franja de color con el tipo de alerta y de donde viene (roja las
+// emergencias, ambar el riesgo de abordaje), quien es, sus datos en filas y los botones. Sale sobre cualquier pantalla.
+static lv_obj_t *alert = nullptr, *aHead, *aTitle, *aSub, *aName, *aBody;
+static int alertEq = -1;
+static int alertClosedEq = -2;
+static bool alertEai = false;
+// Cerrada una alerta, esa misma estacion no la vuelve a abrir en 10 min aunque siga emitiendo.
+static std::string alertClosedCall;
+static uint32_t alertClosedAt = 0;
+static void alertForget() { alertClosedEq = M->leds.eq; alertClosedCall = M->leds.ec; alertClosedAt = nowMs(); }
+bool alertOpen() { return alert != nullptr; }
+static void alertDrop() { if (alert) { lv_obj_delete(alert); alert = nullptr; } }
+static void alertClose(lv_event_t*) { alertDrop(); alertForget(); }
+static void alertSilence(lv_event_t*) { trk::send(proto::Cmd("alarm").text("s", "off").str()); }
+static void alertStop(lv_event_t*) { trk::send(proto::Cmd("eai").text("s", "stop").str()); }
+static void alertOk(lv_event_t*) { trk::send(proto::Cmd("eai").text("s", "ok").str()); }
+static bool alertIsAis() { return M->leds.ek.rfind("ais", 0) == 0; }
+static void alertStation(lv_event_t*) {
+    std::string c = M->leds.ec;
+    const bool ais = alertIsAis();
+    alertDrop();
+    alertForget();
+    if (ais) go(AIS); else go(STATION, c);
+}
+static void alertMap(lv_event_t*) {
+    std::string c = M->leds.ec;
+    const bool ais = alertIsAis();
+    alertDrop();
+    alertForget();
+    for (const proto::Heard& h : M->heard) if (h.call == c && h.hasPos) { mapCenterOn(h.lat, h.lon); go(MAP); return; }
+    for (const proto::Vessel& v : M->ais) if ((v.name == c || std::to_string(v.mmsi) == c) && v.hasPos) { mapCenterOn(v.lat, v.lon); go(MAP); return; }
+    if (ais) go(AIS); else go(STATION, c);
+}
+static void buildAlert(bool eai) {
+    alertDrop();
+    alertEai = eai;
+    alert = lv_obj_create(lv_layer_top());
+    baseObj(alert);
+    lv_obj_set_size(alert, W, H);
+    lv_obj_set_style_bg_color(alert, C(P->scrim), 0);
+    lv_obj_set_style_bg_opa(alert, LV_OPA_80, 0);
+    lv_obj_set_clickable(alert, true);
+    lv_obj_t* p = panel(alert, 0, P->panel, P->panel);
+    lv_obj_set_width(p, 680);
+    lv_obj_center(p);
+    lv_obj_set_style_pad_row(p, 0, 0);
+    lv_obj_set_style_radius(p, 18, 0);
+    lv_obj_set_style_clip_corner(p, true, 0);
+    aHead = col(p, 2);
+    lv_obj_set_width(aHead, LV_PCT(100));
+    lv_obj_set_style_bg_opa(aHead, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_hor(aHead, 22, 0);
+    lv_obj_set_style_pad_ver(aHead, 12, 0);
+    aTitle = text(aHead, "", &app_bold_34, P->bg);
+    lv_obj_set_style_text_letter_space(aTitle, 1, 0);
+    aSub = text(aHead, "", &app_text_18, P->bg);
+    lv_obj_t* body = col(p, 8);
+    lv_obj_set_width(body, LV_PCT(100));
+    lv_obj_set_style_pad_hor(body, 22, 0);
+    lv_obj_set_style_pad_top(body, 14, 0);
+    lv_obj_set_style_pad_bottom(body, 18, 0);
+    aName = text(body, "", &app_bold_26, P->text);
+    aBody = wrap(body, "", &app_text_20, P->subText);
+    lv_obj_t* r = row(body, 10);
+    lv_obj_set_style_margin_top(r, 8, 0);
+    if (eai) {
+        lv_obj_t* k = button(r, "I'M OK", alertOk, nullptr, 0, 64, P->green); lv_obj_set_flex_grow(k, 1);
+        k = button(r, "STOP EAI", alertStop, nullptr, 0, 64, P->amber); lv_obj_set_flex_grow(k, 1);
+    } else {
+        lv_obj_t* k = button(r, "SILENCE ALARM", alertSilence, nullptr, 0, 64, P->amber); lv_obj_set_flex_grow(k, 2);
+        k = button(r, "MAP", alertMap, nullptr, 0, 64, P->cyan); lv_obj_set_flex_grow(k, 1);
+        k = button(r, alertIsAis() ? "VESSEL" : "STATION", alertStation, nullptr, 0, 64, P->cyan); lv_obj_set_flex_grow(k, 1);
+    }
+    lv_obj_t* k = button(r, "CLOSE", alertClose, nullptr, 0, 64);
+    lv_obj_set_flex_grow(k, 1);
+}
+static void alertHead(const char* title, const char* sub, uint32_t color) {
+    lv_obj_set_style_bg_color(aHead, C(color), 0);
+    setText(aTitle, title);
+    setText(aSub, sub);
+}
+static void refreshAlert() {
+    const proto::Leds& l = M->leds;
+    const proto::Eai& a = M->eai;
+    const bool eaiOn = a.ok && (a.sos > 0 || a.fm || a.md);
+    char b[160];
+    if (eaiOn) {
+        if (!alert || !alertEai) buildAlert(true);
+        alertHead(a.md ? "MAN DOWN" : "EMERGENCY (EAI)", a.md ? "This tracker \xC2\xB7 no movement detected" : "This tracker \xC2\xB7 own emergency beacon", P->red);
+        if (a.sos > 0) snprintf(b, sizeof b, "SOS beacon %s \xC2\xB7 %d sent", a.sos == 1 ? "countdown" : "on air", a.sent);
+        else if (a.fm) snprintf(b, sizeof b, "Voice EAI \xC2\xB7 %d s left", a.fmLeft);
+        else snprintf(b, sizeof b, "EAI starts in %d s", a.mdLeft);
+        setText(aName, b);
+        setText(aBody, a.by.empty() ? "Touch I'M OK if you are fine, or STOP EAI to end it." : ("Started by " + a.by).c_str());
+        return;
+    }
+    if (alert && alertEai) alertDrop();
+    if (alert && !(l.ok && l.emg)) alertDrop();                 // la alarma ha terminado: se quita sola
+    const bool snoozed = !alertClosedCall.empty() && l.ec == alertClosedCall && nowMs() - alertClosedAt < 600000;
+    if (!(l.ok && l.emg) || l.eq == alertClosedEq || snoozed) return;
+    if (!alert || alertEq != l.eq) { buildAlert(false); alertEq = l.eq; }
+    if (l.ek == "mob") alertHead("MAN OVERBOARD", "APRS \xC2\xB7 man overboard beacon", P->red);
+    else if (l.ek == "ais_sos") alertHead("AIS DISTRESS", "AIS \xC2\xB7 distress device (SART, MOB or EPIRB)", P->red);
+    else if (l.ek == "ais_cpa") alertHead("COLLISION RISK", "AIS \xC2\xB7 closest point of approach", P->amber);
+    else alertHead("EMERGENCY", l.em ? "APRS \xC2\xB7 emergency message" : "APRS \xC2\xB7 emergency beacon", P->red);
+    setText(aName, l.ec.empty() ? "-" : l.ec.c_str());
+    std::string body;
+    double la, lo;
+    const bool me = ownPos(la, lo);
+    for (const proto::Heard& h : M->heard)
+        if (h.call == l.ec) {
+            if (h.hasPos && me) {
+                const double brg = proto::bearingDeg(la, lo, h.lat, h.lon);
+                body += "Distance / bearing:  " + fmtKm(proto::distanceKm(la, lo, h.lat, h.lon)) + " \xC2\xB7 " + fmtDeg(brg) + " (" + proto::cardinal16(brg) + ")\n";
+            }
+            if (h.hasPos) { snprintf(b, sizeof b, "Position:  %.5f  %.5f \xC2\xB7 %s\n", h.lat, h.lon, proto::locator(h.lat, h.lon).c_str()); body += b; }
+            if (h.spd > 0) body += "Speed / course:  " + fmtSpeed(h.spd) + " \xC2\xB7 " + fmtDeg(h.crs) + "\n";
+            body += "Heard:  " + fmtAge(h.age + (int)((nowMs() - M->heardAtMs) / 1000)) + " ago\n";
+            break;
+        }
+    for (const proto::Vessel& v : M->ais)
+        if (!l.ec.empty() && (v.name == l.ec || std::to_string(v.mmsi) == l.ec)) {
+            if (v.nm >= 0) { int k = snprintf(b, sizeof b, "Distance / bearing:  %.1f nm", v.nm); if (v.brg >= 0) k += snprintf(b + k, sizeof b - k, " \xC2\xB7 %03d\xC2\xB0", v.brg); body += std::string(b) + "\n"; }
+            if (v.cpa >= 0 && v.tcpa >= 0) { snprintf(b, sizeof b, "CPA:  %.2f nm in %.0f min\n", v.cpa, v.tcpa); body += b; }
+            if (v.sog >= 0) { int k = snprintf(b, sizeof b, "Speed / course:  %.1f kn", v.sog); if (v.cog >= 0) k += snprintf(b + k, sizeof b - k, " \xC2\xB7 %03.0f\xC2\xB0", v.cog); body += std::string(b) + "\n"; }
+            snprintf(b, sizeof b, "MMSI %u%s%s\n", (unsigned)v.mmsi, v.cl.empty() ? "" : " \xC2\xB7 class ", v.cl.c_str());
+            body += b;
+            break;
+        }
+    if (!l.et.empty()) body += (l.em ? "Message:  " : "Text:  ") + l.et;
+    while (!body.empty() && body.back() == '\n') body.pop_back();
+    setText(aBody, body.c_str());
+}
+
+// ------------------------------------------------------------------ arranque y bucle
+static uint32_t drawnRev = 0xFFFFFFFF, drawnRotRev = 0xFFFFFFFF, drawnDx = 0xFFFFFFFF;
+static uint32_t lastTick = 0;
+
+static void showSplash(lv_obj_t* mainScr) {
+    lv_obj_t* sp = lv_obj_create(nullptr);
+    lv_obj_set_style_bg_color(sp, lv_color_hex(SPLASH_BG_RGB), 0);
+    lv_obj_set_style_bg_opa(sp, LV_OPA_COVER, 0);
+    lv_obj_set_scrollable(sp, false);
+    lv_obj_t* img = lv_image_create(sp);
+    lv_image_set_src(img, &img_splash);
+    lv_obj_align(img, LV_ALIGN_CENTER, 0, -18);
+    lv_obj_t* ver = lv_label_create(sp);
+    lv_label_set_text(ver, "Display " DISPLAY_VERSION);
+    lv_obj_set_style_text_font(ver, &app_text_20, 0);
+    lv_obj_set_style_text_color(ver, lv_color_hex(0x28B5E1), 0);
+    (lv_obj_align)(ver, LV_ALIGN_CENTER, 0, px(-18) + img_splash.header.h / 2 + px(18));
+    lv_screen_load(sp);
+    lv_obj_fade_in(img, 700, 0);
+    lv_obj_fade_in(ver, 700, 300);
+    lv_screen_load_anim(mainScr, LV_SCREEN_LOAD_ANIM_FADE_IN, 500, 2200, true);
+}
+
+void beginRadio(proto::Model* model, void (*onTheme)(int)) {
+    M = model;
+    themeCb = onTheme;
+    P = cfg::get().theme == 1 ? &LIGHT : &DARK;
+    lv_display_t* d = lv_display_get_default();
+    lv_display_set_theme(d, lv_theme_default_init(d, C(P->cyan), C(P->red), P->dark, &app_text_20));
+    lv_obj_set_style_text_font(lv_layer_top(), &app_text_20, 0);
+
+    scr = lv_obj_create(nullptr);
+    baseObj(scr);
+    lv_obj_set_style_bg_color(scr, C(P->bg), 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+    lv_obj_set_style_text_color(scr, C(P->text), 0);
+    lv_obj_set_style_text_font(scr, &app_text_20, 0);
+    buildStatus();
+    content = lv_obj_create(scr);
+    baseObj(content);
+    lv_obj_set_pos(content, PAD, STATUS_H);
+    lv_obj_set_size(content, W - 2 * PAD, CONTENT_H);
+    buildKeys();
+
+    kb = lv_keyboard_create(lv_layer_top());
+    lv_obj_set_size(kb, W, kbH);
+    lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_style_bg_color(kb, C(P->panel), 0);
+    lv_obj_set_style_bg_color(kb, C(P->key), LV_PART_ITEMS);
+    lv_obj_set_style_text_color(kb, C(P->text), LV_PART_ITEMS);
+    lv_obj_set_style_border_color(kb, C(P->keyBorder), LV_PART_ITEMS);
+    lv_obj_set_style_text_font(kb, &R7_ICON_M, LV_PART_ITEMS);
+    lv_obj_add_event_cb(kb, kbEvent, LV_EVENT_ALL, nullptr);
+    lv_obj_set_hidden(kb, true);
+
+    banner = lv_obj_create(lv_layer_top());
+    baseObj(banner);
+    lv_obj_set_size(banner, W - 2 * PAD, LV_SIZE_CONTENT);
+    lv_obj_set_pos(banner, PAD, STATUS_H);
+    lv_obj_set_style_pad_all(banner, 12, 0);
+    lv_obj_set_style_radius(banner, 10, 0);
+    lv_obj_set_style_bg_opa(banner, LV_OPA_COVER, 0);
+    lv_obj_t* bl = text(banner, "", &app_semi_20, P->bg);
+    lv_obj_set_width(bl, LV_PCT(100));
+    lv_label_set_long_mode(bl, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_clickable(banner, true);
+    lv_obj_add_event_cb(banner, bannerClick, LV_EVENT_CLICKED, nullptr);
+    lv_obj_set_hidden(banner, true);
+
+    initRadio(); initStations(); initMessages(); initTracker(); initSat(); initRotor(); initTools(); initDx(); initWarn();
+    stack.clear();
+    stack.push_back({RADIO, ""});
+    showTop(SCR_COUNT);
+    refreshStatus();
+    refreshTouchKeys();
+    showSplash(scr);
+}
+
+void updateRadio() {
+    if (!M) return;
+    const uint32_t t = nowMs();
+    pumpLinks();
+    rotorFollowStep();
+    catDopplerStep();
+    fastStep();
+    if (banner && !lv_obj_is_hidden(banner) && t - bannerAt > 7000) show(banner, false);
+    // un error del tracker se ensena una vez
+    static uint32_t errSeen = 0;
+    if (M->errSeq != errSeen) { errSeen = M->errSeq; if (!M->lastError.empty()) error(M->lastError.c_str()); }
+    static uint32_t rotErr = 0;
+    if (RM.errSeq != rotErr) { rotErr = RM.errSeq; if (!RM.lastError.empty()) error(("Rotor box: " + RM.lastError).c_str()); }
+    const bool tick = t - lastTick >= 1000;
+    if (tick) { lastTick = t; refreshStatus(); refreshTouchKeys(); tick1s(); }
+    const bool changed = M->revision != drawnRev || RM.revision != drawnRotRev || DX.seq != drawnDx;
+    if (changed || forceRefresh || tick) {
+        drawnRev = M->revision; drawnRotRev = RM.revision; drawnDx = DX.seq;
+        forceRefresh = false;
+        refreshAlert();
+        wxTrack();
+        warnStep();
+        Scr s = top();
+        if (defs[s].refresh) defs[s].refresh();
+        if (changed) { refreshStatus(); refreshTouchKeys(); }
+    }
+}
+
+bool visible(Scr s) { return top() == s; }
+
+} // namespace r7
+
+// --------------------------------------------------------------------------- ui.h
+namespace ui {
+void begin(proto::Model* model, int theme, void (*onThemeChange)(int)) { (void)theme; r7::beginRadio(model, onThemeChange); }
+void update() { r7::updateRadio(); }
+bool mirrorVisible() { return r7::top() == r7::REMOTE; }
+bool heardVisible() { return r7::top() == r7::SLIST || r7::top() == r7::RADIO || r7::top() == r7::MAP || r7::top() == r7::WX; }
+bool messagesVisible() { return r7::top() == r7::MSGS || r7::top() == r7::THREAD; }
+}
+#endif
