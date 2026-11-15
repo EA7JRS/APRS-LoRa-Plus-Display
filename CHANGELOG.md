@@ -1,6 +1,8 @@
 # Changelog
 
-## Sin publicar
+## 5.4.6 — 2026-11-15
+_La 5.4.5 no tuvo entrada propia: lo que ya llevaba está también en esta lista. Placas nuevas en la release: `waveshare_lcd7`, `waveshare_lcd7_v2` y `waveshare_lcd7b_v2`. **Sin probar en las placas**, salvo `waveshare_lcd7` (pantalla, imagen y táctil)._
+
 - **Avisos oficiales** (todas las placas, pestaña Sensors: *Official alerts* y *Space weather*, y ventana emergente con el color del nivel): los del tracker (eventos `alertsv` / `alerts` / `spacewx`: los descarga la app con su internet, con los polígonos de AEMET, y el SAME de la T-TWR) y los de la WiFi propia (`lib/aprs_links/alerts_net`: AEMET por su RSS, MeteoAlarm, NWS, tsunami.gov, USGS / EMSC, SWPC). Network: *Alert zones* y *Country (ISO)*; sin zonas, los de AEMET / MeteoAlarm de la WiFi solo abren la ventana en rojo.
 - Registro de arranque con la línea común del ecosistema: «[INFO][Main] APRS LoRa+ (c) 2026 Manuel - EA7JRS».
 - **Rama `esfera-rotor`** (antes `lcd7-v2`: LCD-7 v2 y 7B v2, interfaz tipo emisora), unida a la 5.4.5:

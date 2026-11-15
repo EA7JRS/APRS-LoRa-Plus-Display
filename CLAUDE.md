@@ -5,7 +5,7 @@ Archivos nuevos con la cabecera `Copyright (C) 2026 Manuel - EA7JRS` y licencia 
 Repositorio: `EA7JRS/APRS-LoRa-Plus-Display`. Hermanos: tracker `EA7JRS/APRS-LoRa-Plus`, app `…-Android`, rotor `…-Rotor`.
 
 ## Qué es
-Pantalla táctil para el tracker en cuatro placas Waveshare (2026-11-09): **ESP32-S3-Touch-LCD-7B** (1024×600, GT911), **-3.5 / 3.5-C** (ST7796 480×320, FT6336), **-2.8B** (ST7701 RGB 480×640, GT911) y **-1.69** (ST7789V2 240×280, CST816T); un entorno de PlatformIO por placa. Enlace **BLE** con el servicio de control del tracker (`docs/BLE_CONTROL.md` del firmware, mismo PIN que la app). Control completo, no solo ver (pedido de Manuel, 2026-11-08). Misma versión que el resto: **5.4.3** (2026-11-12; la 5.4.2 no se publicó) (`DISPLAY_VERSION` en `platformio.ini`).
+Pantalla táctil para el tracker en cuatro placas Waveshare (2026-11-09): **ESP32-S3-Touch-LCD-7B** (1024×600, GT911), **-3.5 / 3.5-C** (ST7796 480×320, FT6336), **-2.8B** (ST7701 RGB 480×640, GT911) y **-1.69** (ST7789V2 240×280, CST816T); un entorno de PlatformIO por placa. Enlace **BLE** con el servicio de control del tracker (`docs/BLE_CONTROL.md` del firmware, mismo PIN que la app). Control completo, no solo ver (pedido de Manuel, 2026-11-08). Misma versión que el resto: **5.4.6** (2026-11-15; la 5.4.2 no se publicó) (`DISPLAY_VERSION` en `platformio.ini`).
 
 ## Estructura
 - `src/protocol.*`: C++ puro (modelo y órdenes del tracker), probado en el PC: `test/test_protocol.cpp` (41 comprobaciones; `g++ -std=c++17 -I src -I lib/plotter_core/src -I <ArduinoJson>/src test/test_protocol.cpp src/protocol.cpp lib/plotter_core/src/{alerts,minijson,geo}.cpp`).
@@ -33,7 +33,7 @@ Entorno `waveshare_lcd7b_hamclock`, en main desde la 5.4.3 (pedido de Manuel; **
 - Entorno `waveshare_lcd7b_v2` = 7B + `-DUI_RADIO`: interfaz tipo emisora de la app (`src/ui7b/r7*.cpp`, `r7.h`; `ui.cpp` queda para las demás placas). Manuel eligió: tracker y radio, mensajes y estaciones, rotor y CAT, lo de WiFi; aspecto como la app; solo la 7B. Pidió ver las imágenes antes de compilar: arnés de PC con LVGL 9.6 real (placa, BLE, red y ajustes simulados) que saca 36 capturas.
 - `src/settings.*` (Preferences `disp7`), `src/net7.*` (espacio `net7`, para no chocar con `lib/aprs_links/net`; WiFi, NTP, caja del rotor TCP 4534 / BLE `…-b000-…`, DX Cluster telnet, OpenWeatherMap → `wxnet` y `wx` del rotor, firmware del tracker: baja `ota/<placa>.json`, comprueba SHA-256 y envía por la característica `…0005` con ventana de 8 KB), `tracker_link` con `fwPush` y cerrojo de escaneo compartido. HTTPS sin comprobar certificado (el firmware se valida por su SHA-256).
 - Fuentes `tools/make_fonts_7b.sh`, símbolos `tools/make_symbols.py` (logotipos de marcas en blanco). Una pantalla nueva: `Scr` en `r7.h`, `registerScreen`, tecla en `FK` / `PAGES` de `r7_radio.cpp` y entrada en el menú lateral.
-- Compila en la CI; **sin probar en la placa** (ni la red ni el BLE doble tracker + rotor). Pendiente: Manuel decide si se fusiona en `main` y si entra en la release.
+- Compila en la CI; **sin probar en la placa** (ni la red ni el BLE doble tracker + rotor). En `main` y en la release desde la 5.4.6 (Manuel, 2026-11-15: «todas las ramas»).
 
 ## Cómo trabajar
 - No publicar releases ni tocar otros repositorios sin que lo pida Manuel (las etiquetas y releases las crea él).
