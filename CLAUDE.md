@@ -35,7 +35,7 @@ Entorno `waveshare_lcd7b_hamclock`, en main desde la 5.4.3 (pedido de Manuel; **
 - Fuentes `tools/make_fonts_7b.sh`, símbolos `tools/make_symbols.py` (logotipos de marcas en blanco). Una pantalla nueva: `Scr` en `r7.h`, `registerScreen`, tecla en `FK` / `PAGES` de `r7_radio.cpp` y entrada en el menú lateral.
 - Compila en la CI; **sin probar en la placa** (ni la red ni el BLE doble tracker + rotor). En `main` y en la release desde la 5.4.6 (Manuel, 2026-11-15: «todas las ramas»).
 
-- **Núcleo al día (2026-11-15, segunda copia)**: `lib/` copiado del plotter (4f64002): `deviation` (corrección total y tablilla de desvíos), `navtex` (mensajes NAVTEX por NRX) y posiciones compactas en `navwarn`. Sin pantallas nuevas en la Display.
+- **Núcleo al día (2026-11-15, segunda copia)**: `lib/` copiado del plotter (4f64002): `deviation` (corrección total y tablilla de desvíos), `navtex` (mensajes NAVTEX por NRX) y posiciones compactas en `navwarn`. Sin pantallas nuevas en la Display. Tercera copia (a4ac92d): `dsc` (llamadas LSD por la sentencia DSC), sin pantallas en la Display.
 
 ## Cómo trabajar
 - No publicar releases ni tocar otros repositorios sin que lo pida Manuel (las etiquetas y releases las crea él).
