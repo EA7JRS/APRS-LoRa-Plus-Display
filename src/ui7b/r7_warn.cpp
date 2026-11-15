@@ -5,12 +5,15 @@
  * Avisos meteorologicos oficiales (plan del plotter: Meteo > Avisos y su ventana): lista de los que tocan a la zona, ventana
  * emergente cuando entra uno nuevo del nivel elegido o mas (franja amarilla, naranja o roja, como la de las emergencias) y
  * su ajuste (origen, clave de AEMET o pais y zona de Meteoalarm, nivel desde el que salta la ventana).
+ * Tambien los avisos oficiales que manda el tracker (eventos alerts / spacewx: los baja la app con su internet o los
+ * decodifica la T-TWR por SAME), con el origen «TRACKER · ...», y el tiempo espacial en la linea de estado.
  */
 #ifdef UI_RADIO
 #include "r7.h"
 #include "net7.h"
 #include "settings.h"
 #include "wxwarn.h"
+#include "alerts.h"
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -18,8 +21,9 @@
 
 namespace r7 {
 
-static net7::Warnings W_;                    // la ultima copia de lo que tiene la red
-static uint32_t wSeq = 0xFFFFFFFF;
+static net7::Warnings W_;                    // la ultima copia de lo que tiene la red, con los del tracker detras
+static uint32_t wSeq = 0xFFFFFFFF, wTrkVer = 0xFFFFFFFF;
+static size_t wTrkN = (size_t)-1;
 static std::set<std::string> wShown;        // avisos cuya ventana ya salio (o se cerro)
 static std::vector<int> wQueue;             // indices de W_.list que esperan su ventana
 static lv_obj_t *pop = nullptr, *pHead, *pTitle, *pSub, *pName, *pBody, *pNext;
@@ -34,9 +38,55 @@ static std::string span(const wxw::Warning& w) {
     return s;
 }
 static std::string where(const wxw::Warning& w) {
-    if (!w.hasArea) return w.area;
+    if (!w.hasArea) return w.distKm >= 0 ? w.area + " \xC2\xB7 " + fmtKm(w.distKm) + " away" : w.area;
     if (w.inside) return w.area + " \xC2\xB7 you are inside";
     return w.area + " \xC2\xB7 " + fmtKm(w.distKm) + " away";
+}
+
+// Un aviso del tracker (modelo del nucleo del plotter) en la forma de los de la red, para la misma lista y ventana
+static std::string isoUtc(int64_t t) {
+    if (t <= 0) return "";
+    time_t tt = (time_t)t;
+    struct tm g;
+    gmtime_r(&tt, &g);
+    char b[32];
+    strftime(b, sizeof b, "%Y-%m-%dT%H:%M:%S+00:00", &g);
+    return b;
+}
+static wxw::Warning fromTracker(const plotter::Alert& a) {
+    wxw::Warning w;
+    w.id = a.id;
+    w.event = a.event;
+    w.area = a.area;
+    w.desc = a.text;
+    w.instr = a.instruction;
+    w.source = std::string("TRACKER \xC2\xB7 ") + plotter::alertSrcName(a.src);
+    w.level = a.level > 3 ? 3 : a.level;
+    w.onset = isoUtc(a.onset); w.expires = isoUtc(a.expires);
+    w.onsetS = a.onset; w.expiresS = a.expires;
+    if (a.hasPos() && M->gnss.fix) {                 // terremoto, tsunami: a que distancia
+        w.distKm = (float)proto::distanceKm(M->gnss.lat, M->gnss.lon, a.lat, a.lon);
+    }
+    return w;
+}
+static void collect() {
+    W_ = net7::warnings();
+    const int64_t now = (int64_t)time(nullptr);
+    for (const plotter::Alert& a : M->alerts) {
+        if (now > 1700000000 && !a.activeAt(now)) continue;
+        W_.list.push_back(fromTracker(a));
+    }
+    if (M->spaceOk && M->space.valid()) {
+        char b[96];
+        const plotter::SpaceWx& s = M->space;
+        snprintf(b, sizeof b, "Space weather (tracker): Kp %.1f%s%s", s.kpNow(), s.g > 0 ? " \xC2\xB7 G" : "", s.g > 0 ? std::to_string(s.g).c_str() : "");
+        std::string t = b;
+        if (s.sfi > 0) { snprintf(b, sizeof b, " \xC2\xB7 SFI %.0f", s.sfi); t += b; }
+        if (!s.xray.empty()) t += " \xC2\xB7 X-ray " + s.xray;
+        W_.status = W_.status.empty() ? t : W_.status + "\n" + t;
+    }
+    wTrkVer = M->alertsVer;
+    wTrkN = M->alerts.size();
 }
 
 // ------------------------------------------------------------------ ventana emergente
@@ -71,7 +121,7 @@ static void popShow(int idx) {
     lv_obj_set_style_bg_opa(pHead, LV_OPA_COVER, 0);
     lv_obj_set_style_pad_hor(pHead, 22, 0);
     lv_obj_set_style_pad_ver(pHead, 12, 0);
-    pTitle = text(pHead, "WEATHER WARNING", &app_bold_34, 0x131A22);
+    pTitle = text(pHead, w.source.rfind("TRACKER", 0) == 0 ? "OFFICIAL ALERT" : "WEATHER WARNING", &app_bold_34, 0x131A22);   // terremotos, tsunamis... del tracker
     lv_obj_set_style_text_letter_space(pTitle, 1, 0);
     char b[96];
     snprintf(b, sizeof b, "%s \xC2\xB7 %s level%s%s", w.source.c_str(), wxw::levelName(w.level), w.phen.empty() ? "" : " \xC2\xB7 ", w.phen.c_str());
@@ -102,15 +152,15 @@ void warnStep() {
     if (nowMs() - last < 1000 && last) return;
     last = nowMs() | 1;
     const uint32_t seq = net7::warnings().seq;
-    if (seq != wSeq) {
-        W_ = net7::warnings();
-        wSeq = W_.seq;
+    if (seq != wSeq || M->alertsVer != wTrkVer || M->alerts.size() != wTrkN) {
+        collect();
+        wSeq = seq;
         popDrop();
         wQueue.clear();
         const int minLevel = cfg::get().warnPopup;
         for (size_t i = 0; i < W_.list.size(); i++) {
             const wxw::Warning& w = W_.list[i];
-            const bool here = !w.hasArea || w.inside;          // los de zonas cercanas se ven en la lista, sin ventana
+            const bool here = !w.hasArea || w.inside;          // los de zonas cercanas se ven en la lista, sin ventana (los del tracker ya vienen filtrados por la app)
             if (minLevel > 0 && w.level >= minLevel && here && !wShown.count(keyOf(w))) wQueue.push_back((int)i);
         }
         requestRefresh();
@@ -200,8 +250,8 @@ static void buildWarn(lv_obj_t* root) {
 }
 static void refreshWarn() {
     const cfg::Settings& st = cfg::get();
-    W_ = net7::warnings();
-    setText(wStatus, W_.status.empty() ? (st.warnSrc ? "Waiting for the first download (needs WiFi)." : "Off: choose a source in SETUP.") : W_.status.c_str());
+    collect();
+    setText(wStatus, W_.status.empty() ? (st.warnSrc ? "Waiting for the first download (needs WiFi)." : "Own download off (SETUP); the tracker's official alerts are shown here too.") : W_.status.c_str());
     show(wSetup, wSetupOpen || !st.warnSrc);
     for (int i = 0; i < 3; i++) chipSet(wSrcC[i], st.warnSrc == i);
     static const uint32_t pc[] = {0xFFFFFFFF, 0xFFD84D, 0xFF9A3C, 0xFF5A5A};
@@ -216,7 +266,7 @@ static void refreshWarn() {
                                      "Area names are only used while there is no position."
                  : st.warnSrc == 2 ? "Meteoalarm, the European weather services' warnings. It has no zone outlines: write the names of your zones as Meteoalarm calls them."
                  : "Official weather warnings (yellow, orange, red) with a pop-up window when a new one comes in for your area.");
-    show(wEmpty, W_.list.empty() && st.warnSrc != 0);
+    show(wEmpty, W_.list.empty());
     setText(wEmpty, "No warnings in force for your area.");
     wl.begin();
     for (const wxw::Warning& w : W_.list) {
