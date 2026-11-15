@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2026 Manuel - EA7JRS
  *
- * This file is part of APRS LoRa+ Display.
+ * This file is part of APRS LoRa+ Plotter (lo copian APRS LoRa+ Display y el rotor).
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "gunzip.h"

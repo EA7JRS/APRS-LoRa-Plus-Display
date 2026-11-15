@@ -40,6 +40,11 @@ static bool posOk = false;
 static std::vector<plotter::Alert> result;
 static plotter::SpaceWx resultSpace;
 static bool resultNew = false;
+// AEMET: ultimo paquete de CAP leido, la posicion con la que se leyo y sus avisos de esa posicion
+static std::string aemetUrl;
+static plotter::LatLon aemetPos{0, 0};
+static bool aemetPosOk = false;
+static std::vector<plotter::Alert> aemetCaps;
 
 static const char* UA = "APRSLoRaPlus/5 (+https://ea7jrs.github.io/APRS-LoRa-Plus/)";
 
@@ -109,10 +114,32 @@ static void collect(std::vector<plotter::Alert>& all, plotter::SpaceWx& sw, cons
     if (c.weather) {
         if (strcmp(iso, "ES") == 0) {
             const char* rss = havePos && lat < 30 ? plotter::kAemetRssCanarias : plotter::kAemetRssPeninsula;
+            std::vector<plotter::Alert> byZone;
+            std::string bundle;
             if (!fetchBlocks(rss, "item", [&](const std::string& b) {
                     plotter::Alert a;
-                    if (plotter::aemetParseRssItem(b, a) && a.level >= 1 && active(a) && plotter::alertZoneMatch(a.area, c.zones)) all.push_back(a);
+                    if (plotter::aemetParseRssItem(b, a)) { if (a.level >= 1 && active(a) && plotter::alertZoneMatch(a.area, c.zones)) byZone.push_back(a); }
+                    else if (bundle.empty()) bundle = plotter::aemetRssBundle(b);
                 })) fail("AEMET");
+            // Con posicion, los CAP del .tar.gz y su poligono (el barco dentro); el paquete solo se baja si cambia o si
+            // el barco se ha movido mas de 5 km. Si falla, el RSS con el filtro por zonas.
+            bool byPolygon = false;
+            if (havePos && !bundle.empty()) {
+                const bool moved = !aemetPosOk || plotter::gcDistanceNm({lat, lon}, aemetPos) * 1.852 > 5;
+                if (bundle != aemetUrl || moved) {
+                    std::string tgz;
+                    tgz.reserve(512 * 1024);                     // va a la PSRAM; suele ocupar unos cientos de KB
+                    std::vector<plotter::Alert> v;
+                    if (fetchText(bundle.c_str(), tgz, 3u << 20) && plotter::aemetCapBundle((const uint8_t*)tgz.data(), tgz.size(), {lat, lon}, 0, v) == 0) {
+                        aemetUrl = bundle; aemetPos = {lat, lon}; aemetPosOk = true; aemetCaps.swap(v);
+                    } else {
+                        aemetUrl.clear(); aemetPosOk = false; aemetCaps.clear();
+                    }
+                }
+                byPolygon = aemetPosOk;
+                if (byPolygon) for (const auto& a : aemetCaps) if (active(a)) all.push_back(a);
+            }
+            if (!byPolygon) all.insert(all.end(), byZone.begin(), byZone.end());
         } else if (iso[0]) {
             const char* feed = plotter::meteoAlarmFeedName(iso);
             if (feed) {
@@ -250,7 +277,7 @@ static void task(void*) {
 void begin() {
     if (lock) return;
     lock = xSemaphoreCreateMutex();
-    xTaskCreatePinnedToCore(task, "alerts", 16384, nullptr, 1, nullptr, 0);
+    xTaskCreatePinnedToCore(task, "alerts", 20480, nullptr, 1, nullptr, 0);
 }
 
 void apply(const Config& c) {

@@ -1,5 +1,9 @@
 # Changelog
 
+## Sin publicar
+
+- **Avisos de AEMET por su polígono** en las placas con pestañas (`lib/` vuelto a copiar del plotter, 2d013ba): con la posición del tracker o de la red, se baja el paquete público con todos los CAP (el .tar.gz que enlaza el RSS de Meteoalerta) y se muestran los avisos con esa posición dentro; sin posición o si falla, el RSS por zonas. El `gunzip` de la v2 pasa a ser el del núcleo (`lib/plotter_core`).
+
 ## 5.4.6 — 2026-11-15
 _La 5.4.5 no tuvo entrada propia: lo que ya llevaba está también en esta lista. Placas nuevas en la release: `waveshare_lcd7`, `waveshare_lcd7_v2` y `waveshare_lcd7b_v2`. **Sin probar en las placas**, salvo `waveshare_lcd7` (pantalla, imagen y táctil)._
 

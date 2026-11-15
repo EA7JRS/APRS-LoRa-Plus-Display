@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * Avisos oficiales por la WiFi de la pantalla (plotter, APRS LoRa+ Display), en una tarea propia para no frenar la red de
- * datos: meteorologicos (RSS de Meteoalerta de AEMET en Espana, MeteoAlarm en el resto de Europa, NWS en EE. UU.),
+ * datos: meteorologicos (AEMET en Espana: el .tar.gz con todos los CAP, con poligono, o el RSS de Meteoalerta, MeteoAlarm en el resto de Europa, NWS en EE. UU.),
  * tsunamis (tsunami.gov), terremotos (USGS, EMSC) y tiempo espacial (SWPC). Modelo y lectores del nucleo (alerts.h); los
  * JSON grandes se leen con ArduinoJson y un filtro, los XML por bloques (XmlBlockSplitter) sin guardar el documento.
  * Solo se compila con -D APRS_LINKS_ALERTS (el rotor no lo lleva).
@@ -18,7 +18,7 @@ namespace alertsnet {
 
 struct Config {
     bool on = false;
-    char zones[64] = "";        // MeteoAlarm / RSS de AEMET (sin poligonos): palabras de la zona separadas por comas; vacio = todas
+    char zones[64] = "";        // MeteoAlarm / RSS de AEMET (sin posicion o si falla el paquete de CAP): palabras de la zona separadas por comas; vacio = todas
     char country[3] = "";       // ISO; vacio = por la posicion (Espana y EE. UU.; para MeteoAlarm hay que ponerlo)
     bool weather = true, quakes = true, tsunami = true, space = true;
     int minutes = 15;
