@@ -41,6 +41,67 @@ void n2kWind(uint8_t sid, double knots, double angleDeg, uint8_t ref, uint8_t ou
     out[5] = 0xF8 | (ref & 7);                       // los 5 bits altos, reservados, a 1
 }
 
+static void put16u(uint8_t* p, uint16_t v) { p[0] = v & 0xFF; p[1] = v >> 8; }
+static void put32u(uint8_t* p, uint32_t v) { p[0] = v & 0xFF; p[1] = (v >> 8) & 0xFF; p[2] = (v >> 16) & 0xFF; p[3] = v >> 24; }
+static void put16s(uint8_t* p, double v, double res) {   // entero de 16 bits con resolucion res; NAN = 0x7FFF (sin dato)
+    if (!std::isfinite(v)) { p[0] = 0xFF; p[1] = 0x7F; return; }
+    long n = std::lround(v / res);
+    if (n > 32766) n = 32766;
+    if (n < -32767) n = -32767;
+    put16u(p, (uint16_t)(int16_t)n);
+}
+static void put16rad(uint8_t* p, double rad) {           // 0.0001 rad, 0..2pi, sin dato = 0xFFFF
+    if (!std::isfinite(rad)) { p[0] = 0xFF; p[1] = 0xFF; return; }
+    double a = std::fmod(rad, 2 * M_PI); if (a < 0) a += 2 * M_PI;
+    long n = std::lround(a * 10000.0); if (n >= 62832) n = 0;
+    put16u(p, (uint16_t)n);
+}
+static void put32ll(uint8_t* p, double deg) {            // grados a 1e-7, sin dato = 0x7FFFFFFF
+    if (!std::isfinite(deg)) { put32u(p, 0x7FFFFFFF); return; }
+    put32u(p, (uint32_t)(int32_t)std::lround(deg * 1e7));
+}
+
+void n2kXte(uint8_t sid, double xteM, bool terminated, uint8_t out[8]) {
+    std::memset(out, 0xFF, 8);
+    out[0] = sid;
+    out[1] = 0x00 | (0x3 << 4) | ((terminated ? 1 : 0) << 6);   // modo 0 (autonomo), reservado a 1, "navegacion terminada"
+    if (std::isfinite(xteM)) put32u(&out[2], (uint32_t)(int32_t)std::lround(xteM * 100.0));   // 0,01 m, con signo
+}
+
+void n2kNavData(uint8_t sid, const N2kNav& n, uint8_t out[34]) {
+    std::memset(out, 0xFF, 34);
+    out[0] = sid;
+    if (std::isfinite(n.distanceM)) put32u(&out[1], (uint32_t)std::lround(n.distanceM * 100.0));   // 0,01 m
+    out[5] = (uint8_t)((n.magnetic ? 1 : 0) | ((n.perpCrossed ? 1 : 0) << 2) |
+                       ((n.arrivalEntered ? 1 : 0) << 4) | ((n.calcGreatCircle ? 0 : 1) << 6));
+    if (std::isfinite(n.etaSecs)) put32u(&out[6], (uint32_t)std::lround(n.etaSecs * 10000.0)); else put32u(&out[6], 0xFFFFFFFF);
+    put16u(&out[10], n.etaDays);
+    put16rad(&out[12], n.bearingOrigToDestRad);
+    put16rad(&out[14], n.bearingPosToDestRad);
+    put32u(&out[16], n.originWp);
+    put32u(&out[20], n.destWp);
+    put32ll(&out[24], n.destLat);
+    put32ll(&out[28], n.destLon);
+    put16s(&out[32], n.closingVelMs, 0.01);
+}
+
+int n2kFastFrames(const uint8_t* payload, int len, uint8_t seq, uint8_t* out, int outCap) {
+    if (len < 0) return -1;
+    const int frames = len <= 6 ? 1 : 1 + (len - 6 + 6) / 7;
+    if (frames * 8 > outCap) return -1;
+    const uint8_t s = (uint8_t)((seq & 7) << 5);
+    int pos = 0;
+    for (int f = 0; f < frames; f++) {
+        uint8_t* fr = out + f * 8;
+        std::memset(fr, 0xFF, 8);
+        fr[0] = s | (uint8_t)f;
+        int b = 1;
+        if (f == 0) fr[b++] = (uint8_t)len;
+        while (b < 8 && pos < len) fr[b++] = payload[pos++];
+    }
+    return frames;
+}
+
 uint64_t n2kNameValue(const N2kName& n) {
     uint64_t v = 0;
     v |= (uint64_t)(n.unique & 0x1FFFFF);

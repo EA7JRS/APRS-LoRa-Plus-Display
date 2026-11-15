@@ -91,6 +91,7 @@ N2kId n2kParseId(uint32_t canId) {
 
 bool n2kIsFastPacket(uint32_t pgn) {
     switch (pgn) {
+        case 127489:
         case 129029: case 129038: case 129039: case 129040: case 129041: case 129794: case 129809: case 129810: return true;
         default: return false;
     }
@@ -173,6 +174,64 @@ N2kResult N2kReader::feedMessage(uint32_t pgn, const uint8_t* d, int len, Source
         case 127488:                                       // motor (solo el primero)
             if (len < 3 || d[0] != 0 || !okU16(u16(d, 1))) return N2kResult::None;
             st.set(Key::Rpm, u16(d, 1) * 0.25, src, now);
+            if (len >= 5 && okU16(u16(d, 3))) st.set(Key::Boost, u16(d, 3) * 0.1, src, now);          // 100 Pa -> kPa
+            break;
+        case 127489: {                                     // motor, datos lentos (solo el primero)
+            if (len < 26 || d[0] != 0) return N2kResult::None;
+            bool any = false;
+            if (okU16(u16(d, 1))) { st.set(Key::OilPress, u16(d, 1) * 0.1, src, now); any = true; }
+            if (okU16(u16(d, 3))) { st.set(Key::OilTemp, u16(d, 3) * 0.1 - 273.15, src, now); any = true; }
+            if (okU16(u16(d, 5))) { st.set(Key::CoolantTemp, kelvin(u16(d, 5)), src, now); any = true; }
+            if (okI16(u16(d, 9))) { st.set(Key::FuelRate, (int16_t)u16(d, 9) * 0.1, src, now); any = true; }
+            if (u32(d, 11) < 0xFFFFFFFEu) { st.set(Key::EngineHours, u32(d, 11) / 3600.0, src, now); any = true; }
+            if (d[24] != 0x7F && d[24] != 0x7E) { st.set(Key::EngineLoad, (int8_t)d[24], src, now); any = true; }
+            if (!any) return N2kResult::None;
+            break;
+        }
+        case 127505:                                       // nivel de liquido: solo combustible (tipo 0) del primer deposito
+            if (len < 3 || d[0] != 0x00 || !okI16(u16(d, 1))) return N2kResult::None;
+            st.set(Key::FuelLevel, (int16_t)u16(d, 1) * 0.004, src, now);
+            break;
+        // SAE J1939 (motor diesel en el mismo bus de 250 kbit/s): sin dato = 0xFB..0xFF en el byte alto
+        case 61444:                                        // EEC1: regimen
+            if (len < 8 || d[4] > 0xFA) return N2kResult::None;
+            st.set(Key::Rpm, u16(d, 3) * 0.125, src, now);
+            break;
+        case 61443:                                        // EEC2: carga
+            if (len < 8 || d[2] > 0xFA) return N2kResult::None;
+            st.set(Key::EngineLoad, d[2], src, now);
+            break;
+        case 65262: {                                      // temperaturas
+            if (len < 8) return N2kResult::None;
+            bool any = false;
+            if (d[0] <= 0xFA) { st.set(Key::CoolantTemp, d[0] - 40.0, src, now); any = true; }
+            if (d[3] <= 0xFA) { st.set(Key::OilTemp, u16(d, 2) * 0.03125 - 273.0, src, now); any = true; }
+            if (!any) return N2kResult::None;
+            break;
+        }
+        case 65263:                                        // presiones: aceite
+            if (len < 8 || d[3] > 0xFA) return N2kResult::None;
+            st.set(Key::OilPress, d[3] * 4.0, src, now);
+            break;
+        case 65266:                                        // consumo
+            if (len < 8 || d[1] > 0xFA) return N2kResult::None;
+            st.set(Key::FuelRate, u16(d, 0) * 0.05, src, now);
+            break;
+        case 65270:                                        // sobrealimentacion
+            if (len < 8 || d[1] > 0xFA) return N2kResult::None;
+            st.set(Key::Boost, d[1] * 2.0, src, now);
+            break;
+        case 65271:                                        // tension de bateria
+            if (len < 8 || d[5] > 0xFA) return N2kResult::None;
+            st.set(Key::BatteryV, u16(d, 4) * 0.05, src, now);
+            break;
+        case 65276:                                        // nivel de combustible
+            if (len < 8 || d[1] > 0xFA) return N2kResult::None;
+            st.set(Key::FuelLevel, d[1] * 0.4, src, now);
+            break;
+        case 65253:                                        // horas totales (0,05 h)
+            if (len < 8 || d[3] > 0xFA) return N2kResult::None;
+            st.set(Key::EngineHours, u32(d, 0) * 0.05, src, now);
             break;
         case 127508:                                       // bateria (solo la primera)
             if (len < 3 || d[0] != 0 || !okI16(u16(d, 1))) return N2kResult::None;

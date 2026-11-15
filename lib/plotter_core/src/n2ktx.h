@@ -21,6 +21,33 @@ uint32_t n2kMakeId(uint8_t prio, uint32_t pgn, uint8_t src, uint8_t dst = 255);
 // 3 real respecto al barco. Angulo NAN = sin dato.
 void n2kWind(uint8_t sid, double knots, double angleDeg, uint8_t ref, uint8_t out[8]);
 
+// PGN 129283 "Cross Track Error", una trama de 8 bytes. xteM en metros (positivo = el barco a estribor del tramo, como
+// RouteStatus::xteNm). terminated = navegacion terminada. Modo 0 (autonomo). NAN = sin dato.
+void n2kXte(uint8_t sid, double xteM, bool terminated, uint8_t out[8]);
+
+// PGN 129284 "Navigation Data", fast packet de 34 bytes (out[34]). Demoras en radianes verdaderos; distancias en metros;
+// posicion del destino en grados; velocidad de acercamiento en m/s. calcGreatCircle: false = loxodromica. etaDays/etaSecs
+// = fecha/hora estimada de llegada (0 = sin dato). NAN en un double = sin dato.
+struct N2kNav {
+    double distanceM = 0.0 / 0.0;      // distancia al waypoint de destino
+    bool   magnetic = false;           // demoras magneticas (true) o verdaderas (false)
+    bool   perpCrossed = false;        // perpendicular al destino cruzada
+    bool   arrivalEntered = false;     // dentro del circulo de llegada
+    bool   calcGreatCircle = true;     // true ortodromica, false loxodromica
+    double bearingOrigToDestRad = 0.0 / 0.0;
+    double bearingPosToDestRad = 0.0 / 0.0;
+    uint32_t originWp = 0xFFFFFFFF, destWp = 0xFFFFFFFF;
+    double destLat = 0.0 / 0.0, destLon = 0.0 / 0.0;
+    double closingVelMs = 0.0 / 0.0;
+    uint16_t etaDays = 0xFFFF;
+    double   etaSecs = 0.0 / 0.0;
+};
+void n2kNavData(uint8_t sid, const N2kNav& nav, uint8_t out[34]);
+
+// Parte un payload largo en tramas de fast packet (ISO 11783-3). seq: contador 0..7 que cambia en cada mensaje nuevo.
+// Escribe las tramas de 8 bytes seguidas en "out" (cada una 8 bytes) y devuelve cuantas. frames necesarias: 1 + ceil((len-6)/7).
+int n2kFastFrames(const uint8_t* payload, int len, uint8_t seq, uint8_t* out, int outCap);
+
 struct N2kName {
     uint32_t unique = 0;            // 21 bits: numero de serie (en la placa, de la MAC)
     uint16_t manufacturer = 2046;   // 11 bits: codigo sin registrar (no es de ningun fabricante)

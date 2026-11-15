@@ -24,6 +24,7 @@ struct Status {
     bool tracker = false;               // el equipo es un tracker APRS LoRa+ (servicio de control, con PIN)
     bool pinFailed = false;             // el tracker no ha aceptado el PIN
     bool canSend = false;               // el equipo tiene la caracteristica de ordenes (...0002): el instrumento de viento
+    bool canCommand = false;            // tracker APRS LoRa+ con ordenes y eventos JSON (datos del barco: "vessel")
     uint32_t sent = 0;                  // bytes mandados al equipo
 };
 
@@ -34,4 +35,8 @@ const Status& status();
 int read(uint8_t* buf, int max);        // bytes recibidos desde la ultima llamada
 // Texto para el equipo (NMEA 0183): rumbo y velocidad al instrumento de viento. false si no hay enlace o no cabe.
 bool write(const char* text, int len);
+// Orden JSON al tracker APRS LoRa+ (sin "\n"; se anade). false si no hay enlace emparejado con un tracker o no cabe.
+bool command(const char* json);
+// Una linea de evento del tracker (JSON, sin "\n") en line; 0 si no hay ninguna completa.
+int readEvent(char* line, int max);
 }
