@@ -79,10 +79,14 @@ Desde el instalador web del proyecto (Chrome o Edge, placa por USB): https://ea7
 
 **Sin probar en las placas.** Ver `docs/HARDWARE.md` para lo que está sin verificar de cada una antes del primer arranque.
 
-## 7B v2 (rama `lcd7b-v2`)
+## 7B v2 (rama de pruebas `esfera-rotor`)
 `waveshare_lcd7b_v2`: la misma placa 7B con la interfaz de la app Android (radio de dos bandas, teclas [F], estaciones, mensajes, SAT, caja del rotor y CAT, DX Cluster, AIS, configuración y firmware del tracker). Necesita WiFi para el DX Cluster, el tiempo de internet y el firmware. Sin probar en la placa.
 
-## LCD-7 (rama `lcd7-v2`)
+## LCD-7 (rama de pruebas `esfera-rotor`)
 `waveshare_lcd7`: Waveshare ESP32-S3-Touch-LCD-7 (sin B, 800×480, expansor CH422G), con las pestañas de siempre; probada en la placa. `waveshare_lcd7_v2`: la misma placa con la interfaz de la app Android (la de la 7B v2, a escala); sin probar en la placa. La 7 y la 7B no son compatibles: cada una necesita su firmware.
 
 Mapa (7B v2 y LCD-7 v2): OpenStreetMap, IGN topográfico y ortofoto, oscuro, Esri (con tu clave ArcGIS) y OpenSeaMap, con las estaciones, los barcos AIS, tu posición y el haz del rotor encima. Necesita WiFi; con una microSD las zonas ya vistas funcionan sin conexión. Datos: © OpenStreetMap contributors; IGN España (CC BY 4.0); OpenSeaMap; Esri.
+
+Avisos (7B v2 y LCD-7 v2, pantalla *Weather warnings*, tecla WARN): los oficiales de AEMET (con tu clave gratuita de OpenData) o de Meteoalarm, y los que manda el tracker (los baja la app: AEMET, MeteoAlarm, NWS, terremotos, tsunamis…), con ventana emergente del color del nivel; el tiempo espacial del tracker va en la línea de estado.
+
+Rotor (7B v2 y LCD-7 v2, pantallas ROTOR y SAT): la misma esfera que la app, la caja del rotor y sat-aprs (aguja azul = posición, ámbar = objetivo, verde = rumbo del tracker en movimiento, rojo = topes).
