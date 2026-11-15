@@ -5,6 +5,10 @@ Copyright (C) 2026 Manuel - EA7JRS. GPL-3.0-or-later.
 | Entorno (`pio run -e …`) | Placa | Pantalla | Táctil | Serie |
 |---|---|---|---|---|
 | `waveshare_lcd7b` | ESP32-S3-Touch-LCD-7B | 7", RGB 1024×600 | GT911 | UART0 (CH343) |
+| `waveshare_lcd7b_v2` | ESP32-S3-Touch-LCD-7B (interfaz tipo emisora) | 7", RGB 1024×600 | GT911 | UART0 (CH343) |
+| `waveshare_lcd7b_hamclock` | ESP32-S3-Touch-LCD-7B (reloj OpenHamClock) | 7", RGB 1024×600 | GT911 | UART0 (CH343) |
+| `waveshare_lcd7` | ESP32-S3-Touch-LCD-7 (sin B, rev 1.2) | 7", RGB 800×480 | GT911 | UART0 (CH343) |
+| `waveshare_lcd7_v2` | ESP32-S3-Touch-LCD-7 (interfaz tipo emisora) | 7", RGB 800×480 | GT911 | UART0 (CH343) |
 | `waveshare_lcd35` | ESP32-S3-Touch-LCD-3.5 y 3.5-C | 3,5", ST7796 SPI, 480×320 en horizontal | FT6336 | USB CDC |
 | `waveshare_lcd28b` | ESP32-S3-Touch-LCD-2.8B | 2,8", ST7701 RGB, 480×640 en vertical | GT911 | USB CDC |
 | `waveshare_lcd169` | ESP32-S3-Touch-LCD-1.69 | 1,69", ST7789V2 SPI, 240×280 | CST816T | USB CDC |
