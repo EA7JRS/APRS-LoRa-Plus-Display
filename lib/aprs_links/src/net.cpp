@@ -35,6 +35,39 @@ static double posLat = 0, posLon = 0;
 static bool posValid = false;
 static Weather wx;
 static bool wxNew = false;
+static char getUrl[240];
+static volatile bool getWant = false, getDone = false;
+static int getCode = 0;
+static uint32_t getAt = 0;
+static char getBody[2048];
+
+// Consulta pedida con requestGet: cifrada, sin comprobar el certificado (como el tiempo)
+static void doGet() {
+    char url[sizeof(getUrl)];
+    xSemaphoreTake(cfgLock, portMAX_DELAY);
+    memcpy(url, getUrl, sizeof(url));
+    xSemaphoreGive(cfgLock);
+    WiFiClientSecure tls;
+    tls.setInsecure();
+    HTTPClient http;
+    http.setConnectTimeout(8000);
+    http.setTimeout(10000);
+    http.setUserAgent("APRS-LoRa-Plus-Plotter");
+    int code = -1;
+    String body;
+    if (http.begin(tls, url)) {
+        http.addHeader("Accept", "application/json");
+        code = http.GET();
+        if (code > 0) body = http.getString();
+        http.end();
+    }
+    xSemaphoreTake(cfgLock, portMAX_DELAY);
+    getCode = code;
+    snprintf(getBody, sizeof(getBody), "%s", body.c_str());
+    getWant = false;
+    getDone = true;
+    xSemaphoreGive(cfgLock);
+}
 
 // El tiempo en la posicion del barco. Bloquea unos segundos como mucho: va en la tarea de red, no en la de la pantalla.
 static bool fetchWeather(const char* key, double lat, double lon) {
@@ -77,6 +110,11 @@ static void task(void*) {
     static uint8_t buf[1024];
     for (;;) {
         uint32_t now = millis();
+        if (getWant && !st.wifi && now - getAt > 8000) {           // sin WiFi: la consulta acaba sin conexion
+            xSemaphoreTake(cfgLock, portMAX_DELAY);
+            getCode = -1; getBody[0] = 0; getWant = false; getDone = true;
+            xSemaphoreGive(cfgLock);
+        }
         if (seen != cfgVersion) {                                  // configuracion nueva: se empieza de cero
             xSemaphoreTake(cfgLock, portMAX_DELAY);
             c = cfg;
@@ -129,6 +167,7 @@ static void task(void*) {
             else if (fetchWeather(c.owmKey, la, lo)) { st.wxOk++; nextWx = now + 15 * 60000u; }
             else { st.wxFail++; nextWx = now + 2 * 60000u; }
         }
+        if (getWant) doGet();
         // UDP: lo que otros equipos manden a este puerto (AIS de AIS-catcher o AIS Dispatcher, NMEA de un multiplexor)
         if (c.udpPort > 0 && !udpOn) udpOn = udp.begin((uint16_t)c.udpPort) == 1;
         if (udpOn) {
@@ -215,6 +254,27 @@ int readTcp(uint8_t* b, int max) { return sbTcp ? (int)xStreamBufferReceive(sbTc
 void sendTcp(const char* d, int len) { if (sbOut && st.tcp && len > 0) xStreamBufferSend(sbOut, d, (size_t)len, 0); }
 int readUdp(uint8_t* b, int max) { return sbUdp ? (int)xStreamBufferReceive(sbUdp, b, (size_t)max, 0) : 0; }
 
+bool requestGet(const char* url) {
+    if (!cfgLock || getWant || !url || strlen(url) >= sizeof(getUrl)) return false;
+    xSemaphoreTake(cfgLock, portMAX_DELAY);
+    snprintf(getUrl, sizeof(getUrl), "%s", url);
+    getAt = millis();
+    getDone = false;
+    getWant = true;
+    xSemaphoreGive(cfgLock);
+    return true;
+}
+
+bool takeGet(int& code, char* body, size_t size) {
+    if (!cfgLock || !getDone) return false;
+    xSemaphoreTake(cfgLock, portMAX_DELAY);
+    code = getCode;
+    if (size) snprintf(body, size, "%s", getBody);
+    getDone = false;
+    xSemaphoreGive(cfgLock);
+    return true;
+}
+
 #else   // en el PC no hay red
 
 void begin() {}
@@ -224,6 +284,8 @@ void sendTcp(const char*, int) {}
 void setPosition(double, double) {}
 bool takeWeather(Weather&) { return false; }
 int readUdp(uint8_t*, int) { return 0; }
+bool requestGet(const char*) { return false; }
+bool takeGet(int&, char*, size_t) { return false; }
 
 #endif
 

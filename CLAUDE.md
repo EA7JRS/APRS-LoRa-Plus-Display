@@ -27,5 +27,7 @@ Entorno `waveshare_lcd7b_hamclock`, en main desde la 5.4.3 (pedido de Manuel; **
 
 - **Avisos oficiales** (2026-11-12, rama `alertas`): los del tracker (eventos `alertsv` / `alerts` / `spacewx` en `protocol.*`, 48 comprobaciones) y los de la WiFi propia (`lib/aprs_links/alerts_net`, `-DAPRS_LINKS_ALERTS`); tarjetas *Official alerts* y *Space weather* en Sensors, ventana emergente en `lv_layer_top`, *Alert zones* y *Country (ISO)* en Network (Preferences `azones`, `acountry`). Sin probar en las placas.
 
+- **Núcleo al día (2026-11-15)**: `lib/` vuelto a copiar del plotter (ea7ea5a): `celnav` (Sol con precisión de almanaque, Aries y 58 estrellas; `astro` depende de él), lector de motor NMEA 2000 127489 / 127505 y J1939, claves de motor del almacén, y lo acumulado en `aprs_links` (órdenes BLE al tracker, `net::requestGet`). Sin pantallas nuevas en la Display.
+
 ## Cómo trabajar
 - No publicar releases ni tocar otros repositorios sin que lo pida Manuel (las etiquetas y releases las crea él).

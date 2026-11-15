@@ -50,4 +50,8 @@ void setPosition(double lat, double lon); // posicion del barco, para pedir el t
 bool takeWeather(Weather& w);           // true una vez por cada observacion nueva
 void sendTcp(const char* data, int len); // al servidor TCP, si esta conectado (datos de ruta para el piloto)
 int readUdp(uint8_t* buf, int max);     // cada datagrama acaba en salto de linea
+// Consulta HTTPS de una vez (RadioID...), en la tarea de red. false si ya hay una en marcha o la URL no cabe.
+bool requestGet(const char* url);
+// true una vez, al acabar: code = respuesta HTTP (-1 sin WiFi o sin conexion), body = el texto (hasta size - 1)
+bool takeGet(int& code, char* body, size_t size);
 }

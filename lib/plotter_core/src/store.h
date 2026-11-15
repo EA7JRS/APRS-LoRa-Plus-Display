@@ -15,7 +15,9 @@ namespace plotter {
 enum class Key : uint8_t {
     Lat, Lon, Sog, Cog, Heading, Stw, Depth, WaterTemp, Awa, Aws, Twd, Tws, Pressure, AirTemp, Rpm, BatteryV,
     HeadingMag, Pitch, Roll, RudderAngle, Altitude, Hdop, SatsUsed,
-    Gust, Humidity, Visibility, Count
+    Gust, Humidity, Visibility,
+    // Motor (NMEA 2000 127488 / 127489 / 127505 o J1939): C, C, kPa, %, L/h, %, horas, kPa
+    CoolantTemp, OilTemp, OilPress, FuelLevel, FuelRate, EngineLoad, EngineHours, Boost, Count
 };
 
 // Orden de prioridad: menor = mejor. "Uart" y no "Serial": Arduino define Serial como macro
