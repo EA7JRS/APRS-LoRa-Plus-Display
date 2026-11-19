@@ -928,17 +928,19 @@ static void fillAlerts() {
     kvSpace.begin();
     if (!w.valid()) kvSpace.add("-", "No data", P->mut);
     else {
-        auto sc = [](int v) -> uint32_t { return v >= 4 ? P->red : v == 3 ? 0xFF9A3C : v >= 1 ? 0xFFD84D : P->green; };
+        // codigo de colores de NOAA (SWPC): 1 amarillo, 2 naranja claro, 3 naranja, 4 rojo, 5 rojo oscuro; 0 sin color (el Kp, verde)
+        auto sc = [](int v) -> uint32_t { return v >= 1 ? plotter::noaaScaleRgb(v) : P->fg; };
         kvSpace.addf("Geomagnetic", sc(w.g), "G%d", w.g < 0 ? 0 : w.g);
         kvSpace.addf("Radio", sc(w.r), "R%d", w.r < 0 ? 0 : w.r);
         kvSpace.addf("Radiation", sc(w.s), "S%d", w.s < 0 ? 0 : w.s);
         if (w.kpCount) {
             char k[64]; int n = 0;
             for (int i = 0; i < w.kpCount; i++) n += snprintf(k + n, sizeof k - n, "%s%.1f", i ? " " : "", w.kp[i]);
-            kvSpace.addf("Kp 24 h", sc(plotter::kpToG(w.kpNow())), "%s", k);
+            const int g = plotter::kpToG(w.kpNow());
+            kvSpace.addf("Kp 24 h", g >= 1 ? sc(g) : P->green, "%s", k);
         }
         if (w.sfi > 0) kvSpace.addf("Solar flux", P->fg, "%.0f sfu", w.sfi);
-        if (!w.xray.empty()) kvSpace.add("X-ray", w.xray.c_str());
+        if (!w.xray.empty()) kvSpace.add("X-ray", w.xray.c_str(), sc(plotter::xrayToR(plotter::xrayClassFlux(w.xray))));
         if (w.bz < 999) kvSpace.addf("Bz / Bt", P->fg, "%+.0f / %.0f nT", w.bz, w.bt);
         if (w.windKms > 0) kvSpace.addf("Solar wind", P->fg, "%.0f km/s", w.windKms);
     }
