@@ -894,7 +894,7 @@ static void checkAlertWin() {
         if (std::find(alertSeen.begin(), alertSeen.end(), key) != alertSeen.end()) continue;
         alertSeen.push_back(key);
         if (alertSeen.size() > 80) alertSeen.erase(alertSeen.begin(), alertSeen.begin() + 20);
-        const bool quake = a->src == plotter::AlertSrc::Usgs || a->src == plotter::AlertSrc::Emsc;
+        const bool quake = plotter::alertIsQuake(a->src);
         const char* t = quake ? "EARTHQUAKE" : a->src == plotter::AlertSrc::Tsunami ? "TSUNAMI" : a->src == plotter::AlertSrc::Swpc ? "SPACE WEATHER"
                       : a->src == plotter::AlertSrc::Same ? "NOAA WEATHER RADIO" : a->level >= 3 ? "RED WARNING" : a->level == 2 ? "ORANGE WARNING" : "YELLOW WARNING";
         lv_obj_set_style_bg_color(alHead, C(levelColor(a->level)), 0);

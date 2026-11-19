@@ -220,6 +220,9 @@ static void collect(std::vector<plotter::Alert>& all, plotter::SpaceWx& sw, cons
             std::string j;
             if (fetchText(plotter::emscUrl(lat, lon, now - 86400).c_str(), j, 200000)) plotter::quakeParseEmsc(j, q);
             else fail("EMSC");
+            j.clear();                                   // ShakeNet (Raspberry Shake): lo mismo cerca, en texto FDSN
+            if (fetchText(plotter::shakeUrl(lat, lon, now - 86400).c_str(), j, 60000)) plotter::quakeParseFdsnText(j, plotter::AlertSrc::Shake, q);
+            else fail("ShakeNet");
         }
         plotter::quakeSetLevels(q, {lat, lon}, havePos);
         for (auto& a : q) {
