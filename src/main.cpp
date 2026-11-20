@@ -70,11 +70,20 @@ static void readTouch(lv_indev_t*, lv_indev_data_t* data) {
 
 static uint32_t tickMs() { return millis(); }
 
+// RAM interna (la que piden WiFi, Bluetooth, las pilas de las tareas y el sistema) y PSRAM, por el puerto serie
+static void memLog(const char* when) {
+    Serial.printf("[mem] %s: interna %u KB libres (bloque mayor %u KB), PSRAM %u KB libres\n", when,
+                  (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+                  (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024),
+                  (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+}
+
 void setup() {
     Serial.begin(115200);
     Serial.println("\n=== APRS LoRa+ Display " DISPLAY_VERSION " (" BOARD_ENV ") ===");
     Serial.println("[INFO][Main] APRS LoRa+ (c) 2026 Manuel - EA7JRS");      // la misma linea en todos los equipos APRS LoRa+
     bool ok = board::begin();
+    memLog("placa");
 
     lv_init();
     lv_tick_set_cb(tickMs);
@@ -95,6 +104,7 @@ void setup() {
     lv_indev_set_read_cb(indev, readTouch);
 
     trk::begin();
+    memLog("bluetooth");
 #ifdef UI_RADIO
     cfg::load();
     board::setBacklight(cfg::get().backlight);
@@ -103,7 +113,9 @@ void setup() {
 #else
     boat::begin();                                      // red local: WiFi, servidor TCP, UDP (pestana Network)
 #endif
+    memLog("red");
     ui::begin(&model, loadTheme(), saveTheme);
+    memLog("interfaz");
     if (!ok) Serial.println("La placa no ha arrancado bien: revisar docs/HARDWARE.md");
 }
 
@@ -212,6 +224,6 @@ void loop() {
     lv_timer_handler();
     // pila libre de loop() (lo minimo que ha quedado), cada minuto por el puerto serie
     static uint32_t ts = 0;
-    if (millis() - ts > 60000) { ts = millis(); Serial.printf("[main] pila libre: %u bytes\n", (unsigned)uxTaskGetStackHighWaterMark(nullptr)); }
+    if (millis() - ts > 60000) { ts = millis(); Serial.printf("[main] pila libre: %u bytes\n", (unsigned)uxTaskGetStackHighWaterMark(nullptr)); memLog("cada minuto"); }
     delay(5);
 }
