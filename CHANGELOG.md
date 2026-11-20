@@ -1,7 +1,11 @@
 # Changelog
 
-## Sin publicar
+## 5.4.7 — 2026-11-20
 
+- **Space weather con el código de colores de NOAA** (Sensors > *Space weather*): G / R / S, rayos X (escala R) y Kp con los colores de las escalas de NOAA (amarillo, naranja claro, naranja, rojo, rojo oscuro); el nivel 0 sin color y el Kp en verde por debajo de G1.
+- **Terremotos de ShakeNet** (Raspberry Shake) entre los avisos oficiales que baja la propia WiFi; la ventana los trata como terremotos (`alertIsQuake`).
+- **Salida y puesta del sol exactas** (núcleo del plotter: lugar preciso del sol en ese momento).
+- Núcleo común del plotter al día (`lib/`, `tools/sync_links.sh`): situación por demoras, corriente, latitud por la meridiana y por la Polar, corrección total y tablilla de desvíos, NAVTEX y LSD / DSC por NMEA, mensajes de radiotelefonía, ficha pública de MarineTraffic. La Display aún no tiene pantallas para ellos.
 - **Avisos de AEMET por su polígono** en las placas con pestañas (`lib/` vuelto a copiar del plotter, 2d013ba): con la posición del tracker o de la red, se baja el paquete público con todos los CAP (el .tar.gz que enlaza el RSS de Meteoalerta) y se muestran los avisos con esa posición dentro; sin posición o si falla, el RSS por zonas. El `gunzip` de la v2 pasa a ser el del núcleo (`lib/plotter_core`).
 
 ## 5.4.6 — 2026-11-15

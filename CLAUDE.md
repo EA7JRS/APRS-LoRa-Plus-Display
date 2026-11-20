@@ -5,7 +5,7 @@ Archivos nuevos con la cabecera `Copyright (C) 2026 Manuel - EA7JRS` y licencia 
 Repositorio: `EA7JRS/APRS-LoRa-Plus-Display`. Hermanos: tracker `EA7JRS/APRS-LoRa-Plus`, app `…-Android`, rotor `…-Rotor`.
 
 ## Qué es
-Pantalla táctil para el tracker en cuatro placas Waveshare (2026-11-09): **ESP32-S3-Touch-LCD-7B** (1024×600, GT911), **-3.5 / 3.5-C** (ST7796 480×320, FT6336), **-2.8B** (ST7701 RGB 480×640, GT911) y **-1.69** (ST7789V2 240×280, CST816T); un entorno de PlatformIO por placa. Enlace **BLE** con el servicio de control del tracker (`docs/BLE_CONTROL.md` del firmware, mismo PIN que la app). Control completo, no solo ver (pedido de Manuel, 2026-11-08). Misma versión que el resto: **5.4.6** (2026-11-15; la 5.4.2 no se publicó) (`DISPLAY_VERSION` en `platformio.ini`).
+Pantalla táctil para el tracker en cuatro placas Waveshare (2026-11-09): **ESP32-S3-Touch-LCD-7B** (1024×600, GT911), **-3.5 / 3.5-C** (ST7796 480×320, FT6336), **-2.8B** (ST7701 RGB 480×640, GT911) y **-1.69** (ST7789V2 240×280, CST816T); un entorno de PlatformIO por placa. Enlace **BLE** con el servicio de control del tracker (`docs/BLE_CONTROL.md` del firmware, mismo PIN que la app). Control completo, no solo ver (pedido de Manuel, 2026-11-08). Misma versión que el resto: **5.4.7** (2026-11-20; la 5.4.2 no se publicó) (`DISPLAY_VERSION` en `platformio.ini`).
 
 ## Estructura
 - `src/protocol.*`: C++ puro (modelo y órdenes del tracker), probado en el PC: `test/test_protocol.cpp` (41 comprobaciones; `g++ -std=c++17 -I src -I lib/plotter_core/src -I <ArduinoJson>/src test/test_protocol.cpp src/protocol.cpp lib/plotter_core/src/{alerts,minijson,geo,gunzip}.cpp`).

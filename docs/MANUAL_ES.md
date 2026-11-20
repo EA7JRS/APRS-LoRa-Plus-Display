@@ -1,6 +1,6 @@
 # APRS LoRa+ Display — manual de usuario
 
-Copyright (C) 2026 Manuel - EA7JRS. GPL-3.0-or-later. Versión **5.4.6**.
+Copyright (C) 2026 Manuel - EA7JRS. GPL-3.0-or-later. Versión **5.4.7**.
 
 APRS LoRa+ Display es una pantalla táctil para el tracker **APRS LoRa+**. No lleva radio LoRa ni GPS: se une al tracker por
 Bluetooth LE, enseña lo que oye y lo maneja entero, como la app Android. Con WiFi añade la red del barco, el tiempo de
@@ -135,7 +135,7 @@ Datos: © OpenStreetMap contributors; IGN España (CC BY 4.0); OpenSeaMap; Esri.
 ## 8. Avisos oficiales
 
 - **Placas con pestañas** (con WiFi): AEMET en España, MeteoAlarm en el resto de Europa (país en *Country (ISO)*), NWS en
-  EE. UU., tsunamis, terremotos (USGS, EMSC) y tiempo espacial (SWPC), cada 15 min. Los de AEMET, con posición (del tracker o
+  EE. UU., tsunamis, terremotos (USGS, EMSC, ShakeNet de Raspberry Shake) y tiempo espacial (SWPC, con los colores de las escalas de NOAA: amarillo, naranja claro, naranja, rojo y rojo oscuro para los niveles 1 a 5), cada 15 min. Los de AEMET, con posición (del tracker o
   de la red), son los que tienen dentro esa posición según el polígono de cada aviso; sin posición, por las palabras de
   *Alert zones* («Huelva, Cádiz»). Ventana emergente del color del nivel y resumen en Sensors.
 - **v2**: pantalla *Weather warnings* (tecla WARN): AEMET (con tu clave gratuita de OpenData, con polígono y distancia) o

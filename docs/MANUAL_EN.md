@@ -1,6 +1,6 @@
 # APRS LoRa+ Display — user manual
 
-Copyright (C) 2026 Manuel - EA7JRS. GPL-3.0-or-later. Version **5.4.6**.
+Copyright (C) 2026 Manuel - EA7JRS. GPL-3.0-or-later. Version **5.4.7**.
 
 APRS LoRa+ Display is a touch screen for the **APRS LoRa+** tracker. It has no LoRa radio and no GPS: it links to the tracker
 over Bluetooth LE, shows what the tracker hears and controls all of it, like the Android app. With Wi-Fi it adds the boat
@@ -134,7 +134,7 @@ Data: © OpenStreetMap contributors; IGN Spain (CC BY 4.0); OpenSeaMap; Esri.
 ## 8. Official alerts
 
 - **Tab boards** (with Wi-Fi): AEMET in Spain, MeteoAlarm in the rest of Europe (country in *Country (ISO)*), NWS in the US,
-  tsunamis, earthquakes (USGS, EMSC) and space weather (SWPC), every 15 min. AEMET's, with a position (from the tracker or
+  tsunamis, earthquakes (USGS, EMSC, Raspberry Shake ShakeNet) and space weather (SWPC, with the NOAA scale colours: yellow, light orange, orange, red and dark red for levels 1 to 5), every 15 min. AEMET's, with a position (from the tracker or
   the network), are those whose polygon has that position inside; without a position, by the words in *Alert zones*
   ("Huelva, Cádiz"). Pop-up window in the colour of the level and a summary in Sensors.
 - **v2**: *Weather warnings* screen (WARN key): AEMET (with your free OpenData key, with polygon and distance) or Meteoalarm
