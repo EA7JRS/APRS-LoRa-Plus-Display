@@ -46,6 +46,13 @@ namespace {
 
 int typeCount() { return kTypeN; }
 const char* typeName(int t) { return kTypes[(t >= 0 && t < kTypeN) ? t : 0].name; }
+const char* typeNameEn(int t) {
+    static const char* const en[] = {"sailing yacht", "motor yacht", "cargo ship", "tanker", "passenger ship / ferry", "fishing vessel",
+                                     "tug", "pilot vessel", "high speed craft", "law enforcement vessel", "search and rescue vessel",
+                                     "medical transport", "military vessel", "diving vessel", "sailing vessel", "WIG craft / hovercraft", "vessel"};
+    const int n = (int)(sizeof(en) / sizeof(en[0]));
+    return en[(t >= 0 && t < n && t < kTypeN) ? t : 0];
+}
 char typeClass(int t) { return kTypes[(t >= 0 && t < kTypeN) ? t : 0].cls; }
 bool classB(int t) { return typeClass(t) != 'A'; }
 bool validMmsi(uint32_t m) { return m >= 200000000UL && m <= 799999999UL; }

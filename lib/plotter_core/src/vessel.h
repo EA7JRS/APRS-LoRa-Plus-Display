@@ -31,6 +31,7 @@ struct Data {
 
 int         typeCount();                    // 17
 const char* typeName(int type);             // en espanol
+const char* typeNameEn(int type);           // en ingles (mensajes de radio)
 char        typeClass(int type);            // 'A', 'S' (clase B "SO") o 'C' (clase B "CS")
 bool        classB(int type);
 bool        configured(const Data& d);      // tiene nombre o MMSI
