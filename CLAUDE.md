@@ -37,6 +37,8 @@ Entorno `waveshare_lcd7b_hamclock`, en main desde la 5.4.3 (pedido de Manuel; **
 
 - **Núcleo al día (2026-11-15, segunda copia)**: `lib/` copiado del plotter (4f64002): `deviation` (corrección total y tablilla de desvíos), `navtex` (mensajes NAVTEX por NRX) y posiciones compactas en `navwarn`. Sin pantallas nuevas en la Display. Tercera copia (a4ac92d): `dsc` (llamadas LSD por la sentencia DSC), sin pantallas en la Display. Copia de 1883dee (2026-11-20): terremotos de ShakeNet (Raspberry Shake) en `alerts` / `alerts_net`; la ventana usa `alertIsQuake`. Copia de e44a873: colores de NOAA (`noaaScaleRgb`, `xrayToR`); Sensors > *Space weather* los usa en G / R / S, Kp (verde por debajo de G1) y rayos X; nivel 0 sin color.
 
+- **Memoria de LVGL en la PSRAM (2026-11-20)**: la LCD-7 v2 de Manuel se reiniciaba en bucle (traza decodificada con el ELF de la release: `abort` en `lock_init_generic` ← `time()` ← `net7::timeValid` ← `refreshStatus` ← `beginRadio`): sin RAM interna. `lv_defs.h` pone `LV_STDLIB_CUSTOM` en el ESP32 (en el PC sigue `CLIB`) y `src/lv_mem_psram.c` reserva con `heap_caps` en la PSRAM; el reloj lo compila en su `build_src_filter`. Líneas `[mem]` en el arranque. Arnés del PC: la interfaz pide unos 74 KB en ~2900 reservas pequeñas al arrancar (64 bits). Los ELF van en la release (`display-elf.zip`; se bajan con `gh api … releases/assets/<id>` y `Accept: application/octet-stream`) y `addr2line` del sistema decodifica las trazas del ESP32-S3.
+
 ## Cómo trabajar
 - No publicar releases ni tocar otros repositorios sin que lo pida Manuel (las etiquetas y releases las crea él).
 

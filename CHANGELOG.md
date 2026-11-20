@@ -1,5 +1,9 @@
 # Changelog
 
+## Sin publicar
+
+- **LCD-7 v2 (y 7B v2) se reiniciaban sin parar al arrancar** (`abort()` en `lock_init_generic`, llamado desde `time()` en `ui::begin`): la RAM interna se agotaba. Con el `malloc` de la librería C, las reservas de LVGL de menos de 4 KB (los miles de objetos de la interfaz tipo emisora) iban a la RAM interna, la misma que usan WiFi, Bluetooth, las tareas de red y el panel. Ahora toda la memoria de LVGL va a la PSRAM (`src/lv_mem_psram.c`), en todas las placas. El arranque escribe por el puerto serie líneas `[mem]` con la RAM interna y la PSRAM libres.
+
 ## 5.4.7 — 2026-11-20
 
 - **Space weather con el código de colores de NOAA** (Sensors > *Space weather*): G / R / S, rayos X (escala R) y Kp con los colores de las escalas de NOAA (amarillo, naranja claro, naranja, rojo, rojo oscuro); el nivel 0 sin color y el Kp en verde por debajo de G1.
