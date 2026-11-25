@@ -82,7 +82,7 @@ Desde el instalador web del proyecto (Chrome o Edge, placa por USB): https://ea7
 
 ## Estado
 
-Versión **5.4.7**. La LCD-7 con pestañas está **probada en la placa** (pantalla, imagen y táctil). El resto compila en la CI y pasa sus pruebas en el PC, pero está **sin probar en la placa**: ver `docs/HARDWARE.md` antes del primer arranque. **La 7 y la 7B no son compatibles**: cada una necesita su firmware.
+Versión **5.5.0**. La LCD-7 con pestañas está **probada en la placa** (pantalla, imagen y táctil). El resto compila en la CI y pasa sus pruebas en el PC, pero está **sin probar en la placa**: ver `docs/HARDWARE.md` antes del primer arranque. **La 7 y la 7B no son compatibles**: cada una necesita su firmware.
 
 ## Interfaz tipo emisora (7B v2 y LCD-7 v2)
 `waveshare_lcd7b_v2` y `waveshare_lcd7_v2`: la interfaz de la app Android (radio de dos bandas, teclas [F], estaciones, mensajes, SAT, caja del rotor y CAT, DX Cluster, AIS, configuración y firmware del tracker). Necesita WiFi para el DX Cluster, el tiempo de internet, el mapa, los avisos y el firmware.

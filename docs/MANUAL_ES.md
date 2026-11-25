@@ -1,6 +1,6 @@
 # APRS LoRa+ Display — manual de usuario
 
-Copyright (C) 2026 Manuel - EA7JRS. GPL-3.0-or-later. Versión **5.4.7**.
+Copyright (C) 2026 Manuel - EA7JRS. GPL-3.0-or-later. Versión **5.5.0**.
 
 APRS LoRa+ Display es una pantalla táctil para el tracker **APRS LoRa+**. No lleva radio LoRa ni GPS: se une al tracker por
 Bluetooth LE, enseña lo que oye y lo maneja entero, como la app Android. Con WiFi añade la red del barco, el tiempo de

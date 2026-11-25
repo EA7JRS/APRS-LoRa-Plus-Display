@@ -1,7 +1,8 @@
 # Changelog
 
-## Sin publicar
+## 5.5.0 — 2026-11-25
 
+- **Unificación del ecosistema en la 5.5.0** (tracker, app Android, rotor, Display, plotter, pasarela NMEA 2000 y OBD-II al mismo número).
 - **LCD-7 v2 (y 7B v2) se reiniciaban sin parar al arrancar** (`abort()` en `lock_init_generic`, llamado desde `time()` en `ui::begin`): la RAM interna se agotaba. Con el `malloc` de la librería C, las reservas de LVGL de menos de 4 KB (los miles de objetos de la interfaz tipo emisora) iban a la RAM interna, la misma que usan WiFi, Bluetooth, las tareas de red y el panel. Ahora LVGL usa su propio reparto (`src/lv_mem_psram.c`, en todas las placas): los objetos pequeños (≤ 2 KB) van a la RAM interna mientras queden 80 KB libres para el sistema, y el resto a la PSRAM. Todo en la PSRAM arrancaba pero iba lento y, en la LCD-7, salían rayas en el borde izquierdo (el panel RGB lee su imagen de la PSRAM y el dibujo le quitaba ancho de banda). El arranque escribe por el puerto serie líneas `[mem]` con la RAM interna y la PSRAM libres.
 
 ## 5.4.7 — 2026-11-20

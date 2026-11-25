@@ -1,6 +1,6 @@
 # APRS LoRa+ Display — quick start
 
-Copyright (C) 2026 Manuel - EA7JRS. GPL-3.0-or-later. Version **5.4.7**. Full manual: [MANUAL_EN.md](MANUAL_EN.md).
+Copyright (C) 2026 Manuel - EA7JRS. GPL-3.0-or-later. Version **5.5.0**. Full manual: [MANUAL_EN.md](MANUAL_EN.md).
 
 ## 1. Choose the firmware
 
