@@ -18,13 +18,17 @@ struct Info {
     std::string dev, ver, board, name, drv, call, ip;
     int rotctld = 0, rigctld = 0;
     uint32_t up = 0;
+    bool gps = false, gpsHeld = false;      // la caja tiene GPS propio (red o u-blox local); posicion congelada (equipo parado)
 };
+// Actitud de la caja (escora / cabeceo / giro del mastil): la antena sigue apuntando en plataforma movil o con el mastil girado
+struct Att { bool ok = false, on = false, old = false; float roll = 0, pitch = 0, yaw = 0; int age = 0; };
 struct Pos {
     bool ok = false, hasEl = false, moving = false, hasTarget = false;
     float az = 0, el = 0, maz = 0, taz = 0, tel = 0;
     int st = 0;
     std::string fault = "OK", aprs;
     Wind wind;
+    Att att;
 };
 struct Cat {
     bool ok = false, link = false, split = false, ptt = false, pttAllowed = false, trackEn = false, trackOn = false;

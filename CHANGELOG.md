@@ -1,5 +1,9 @@
 # Changelog
 
+## 5.5.1
+
+- **Pantalla remota del rotor al día con la caja**: la caja APRS LoRa+ Rotor gana en la 5.5.1 el soporte GPS (gpsd / NMEA en red y u-blox local por UART, con filtro de equipo parado y static hold) y la compensación de actitud también en sus placas ESP32. El Display, que es su pantalla remota, lee ahora esos campos del protocolo de control (`gps.held` en el evento `info`, `att` en el evento `pos`) y los muestra en la pantalla **Rotor box**: fila **GPS** con «fijo (parado)» o «en vivo», y fila **ATTITUDE** con escora / cabeceo / giro del mástil (o «off»). El Display no lleva ese código (vive en el firmware del rotor, `RotorCore`); solo lo refleja.
+
 ## 5.5.0 — 2026-11-25
 
 - **Unificación del ecosistema en la 5.5.0** (tracker, app Android, rotor, Display, plotter, pasarela NMEA 2000 y OBD-II al mismo número).

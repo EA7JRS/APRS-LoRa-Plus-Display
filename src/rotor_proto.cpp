@@ -25,6 +25,8 @@ bool apply(Model& m, const char* text) {
         i.dev = S(d["dev"]); i.ver = S(d["ver"]); i.board = S(d["board"]); i.name = S(d["name"]); i.drv = S(d["drv"]); i.call = S(d["call"]);
         i.ip = S(d["ip"]); i.rotctld = d["rotctld"] | 0; i.rigctld = d["rigctld"] | 0; i.up = d["up"] | 0u;
         i.capCal = d["caps"]["cal"] | false; i.capMove = d["caps"]["move"] | true;
+        JsonObjectConst g = d["gps"];
+        i.gps = !g.isNull(); i.gpsHeld = i.gps && (g["held"] | false);   // "fijo": la posicion esta congelada (equipo parado)
     } else if (!strcmp(e, "pos")) {
         Pos& p = m.pos;
         p.ok = true; p.az = d["az"] | 0.0f; p.hasEl = !d["el"].isNull(); p.el = d["el"] | 0.0f; p.st = d["st"] | 0; p.moving = d["mv"] | false;
@@ -36,6 +38,13 @@ bool apply(Model& m, const char* text) {
             Wind& x = p.wind;
             x.ok = true; x.on = w["on"] | false; x.park = w["park"] | 0.0f; x.locked = w["lk"] | false; x.ws = w["ws"] | -1.0f; x.wg = w["wg"] | -1.0f;
             x.wd = w["wd"] | -1; x.peak = w["pk"] | -1.0f; x.age = w["age"] | 0; x.src = S(w["src"]); x.hold = w["hold"] | 0; x.local = w["local"] | false;
+        }
+        JsonObjectConst a = d["att"];
+        p.att = Att();
+        if (!a.isNull()) {
+            Att& t = p.att;
+            t.ok = true; t.on = a["on"] | false; t.roll = a["r"] | 0.0f; t.pitch = a["p"] | 0.0f; t.yaw = a["y"] | 0.0f;
+            t.age = a["age"] | 0; t.old = a["old"] | false;
         }
     } else if (!strcmp(e, "cat")) {
         Cat& c = m.cat;

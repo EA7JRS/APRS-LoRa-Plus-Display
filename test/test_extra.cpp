@@ -23,6 +23,12 @@ int main() {
     CHECK(rotp::apply(m, R"J({"e":"pos","az":123.4,"el":45.0,"st":38,"mv":true,"f":"OK","maz":483.4,"taz":125.0,"tel":45.0,"wind":{"on":true,"park":15,"lk":true,"ws":20,"wg":28.4,"wd":250,"pk":28.4,"age":150,"src":"OWM","hold":870}})J"));
     CHECK(m.pos.ok && m.pos.moving && m.pos.hasEl && m.pos.maz > 483 && m.pos.hasTarget && m.pos.wind.locked && m.pos.wind.hold == 870 && m.pos.wind.src == "OWM");
     CHECK(rotp::apply(m, R"J({"e":"pos","az":10,"f":"STALL AZ"})J") && !m.pos.hasEl && !m.pos.hasTarget && m.pos.fault == "STALL AZ" && !m.pos.wind.ok);
+    // GPS de la caja con la posicion congelada (equipo parado) -> "fijo"
+    CHECK(rotp::apply(m, R"J({"e":"info","gps":{"lines":842,"lat":36.72,"lon":-4.42,"held":true}})J") && m.info.gps && m.info.gpsHeld);
+    CHECK(rotp::apply(m, R"J({"e":"info"})J") && !m.info.gps && !m.info.gpsHeld);
+    // Actitud de la caja (plataforma movil / mastil girado)
+    CHECK(rotp::apply(m, R"J({"e":"pos","az":10,"att":{"on":true,"r":5.2,"p":-3.1,"y":12.0,"age":1}})J") && m.pos.att.ok && m.pos.att.on && m.pos.att.roll > 5.1f && m.pos.att.roll < 5.3f && m.pos.att.pitch < -3.0f && !m.pos.att.old);
+    CHECK(rotp::apply(m, R"J({"e":"pos","az":10})J") && !m.pos.att.ok);
     CHECK(rotp::apply(m, R"J({"e":"cat","rig":"IC-9700","l":true,"f":436795000,"m":"FM","tf":145850000,"sp":true,"v":"A","ptt":false,"sm":11,"tn":67.0,"pa":true,"tr":{"en":true,"on":true,"n":"SO-50","dop":-4210}})J"));
     CHECK(m.cat.link && m.cat.f == 436795000u && m.cat.split && m.cat.sm == 11 && m.cat.pttAllowed && m.cat.trackOn && m.cat.dop == -4210 && m.cat.tone > 66);
     CHECK(rotp::sLabel(11) == "S9+20" && rotp::sLabel(7) == "S7" && rotp::sLabel(-1) == "S-");

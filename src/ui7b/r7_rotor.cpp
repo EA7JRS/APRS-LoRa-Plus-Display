@@ -356,6 +356,12 @@ static void refreshRotor() {
             if (!i.call.empty()) rInfo.add("CALLSIGN", i.call.c_str());
             if (!i.ip.empty()) rInfo.addf("ADDRESS", P->text, "%s \xC2\xB7 rotctld %d%s", i.ip.c_str(), i.rotctld, i.rigctld ? (" \xC2\xB7 rigctld " + std::to_string(i.rigctld)).c_str() : "");
             rInfo.addf("LIMITS", P->text, "AZ %.0f-%.0f\xC2\xB0%s", i.minAz, i.maxAz, i.hasEl ? (" \xC2\xB7 EL " + std::to_string((int)i.minEl) + "-" + std::to_string((int)i.maxEl) + "\xC2\xB0").c_str() : "");
+            if (i.gps) rInfo.add("GPS", i.gpsHeld ? "fijo (parado)" : "en vivo", i.gpsHeld ? P->green : P->amber);
+            const rotp::Att& at = RM.pos.att;     // actitud de la caja (plataforma movil / mastil girado)
+            if (at.ok) {
+                if (at.on) rInfo.addf("ATTITUDE", at.old ? P->amber : P->text, "roll %.1f\xC2\xB0 pitch %.1f\xC2\xB0 yaw %.1f\xC2\xB0%s", at.roll, at.pitch, at.yaw, at.old ? " (old)" : "");
+                else rInfo.add("ATTITUDE", "off", P->muted);
+            }
         }
         rInfo.end();
         rRaw.begin();
