@@ -16,6 +16,7 @@
 #include "tsync.h"
 #include "astro.h"
 #include "geo.h"
+#include "poshold.h"
 #include "wmm.h"
 
 using namespace plotter;
@@ -122,10 +123,15 @@ void trackerTime(const char* isoUtc) {
     if (plotter::isoUtc(isoUtc, t)) tsync::offer(plotter::TimeSource::Gps, t);   // GNSS del tracker (cada 2 s)
 }
 
+// Filtro de equipo parado (plotter_core, compartido con el rotor): fondeado, el baile del fix no mueve el barco en la carta
+static plotter::PosHold posHold_;
+
 void trackerFix(double lat, double lon, double sogKn, double cogDeg, uint32_t now) {
-    st_.set(Key::Lat, lat, Source::Ble, now);
-    alertsnet::setPosition(lat, lon);                             // avisos oficiales en la posicion del tracker
-    st_.set(Key::Lon, lon, Source::Ble, now);
+    double hLat, hLon;
+    posHold_.update(lat, lon, sogKn * (1852.0 / 3600.0), hLat, hLon);   // sog en nudos -> m/s
+    st_.set(Key::Lat, hLat, Source::Ble, now);
+    alertsnet::setPosition(hLat, hLon);                          // avisos oficiales en la posicion del tracker
+    st_.set(Key::Lon, hLon, Source::Ble, now);
     st_.set(Key::Sog, sogKn, Source::Ble, now);
     if (sogKn > 0.5) st_.set(Key::Cog, cogDeg, Source::Ble, now);   // parado, el rumbo del GNSS no vale
 }

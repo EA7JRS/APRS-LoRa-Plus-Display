@@ -1,1 +1,5 @@
 Copiado de EA7JRS/APRS-LoRa-Plus-Plotter, commit fbd9d2b, con tools/sync_links.sh. No editar aqui.
+
+Excepcion: plotter_core/src/poshold.h se trajo a mano de la rama poshold-compartido del plotter
+(filtro de equipo parado compartido, plotter::PosHold). Cuando esa rama entre en el main del
+plotter, el proximo tools/sync_links.sh lo reconcilia sin cambios.
